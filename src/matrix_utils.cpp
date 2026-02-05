@@ -8,6 +8,8 @@ std::vector<std::array<int, 3>> MatrixUtils::rref(const std::vector<std::array<i
     }
     
     // Convert to double for RREF computation
+    // Note: We take absolute values here to match Octave's rref(abs(tunnel_list))
+    // This focuses on tunnel connectivity regardless of direction
     std::vector<std::array<double, 3>> mat;
     for (const auto& row : matrix) {
         mat.push_back({static_cast<double>(std::abs(row[0])), 

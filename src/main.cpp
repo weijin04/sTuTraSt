@@ -109,8 +109,9 @@ int main(int /* argc */, char** /* argv */) {
         // Check for breakthrough using reduced row echelon form (RREF)
         // This matches the Octave implementation: echelon=rref(abs(tunnel_list))
         if (!tunnel_list.empty()) {
-            // Debug: show tunnel_list size before RREF
-            if (level <= 15) {
+            // Debug: show tunnel_list size before RREF (for early levels)
+            const int DEBUG_MAX_LEVEL = 15;
+            if (level <= DEBUG_MAX_LEVEL) {
                 std::cout << "  tunnel_list has " << tunnel_list.size() << " entries before RREF" << std::endl;
             }
             

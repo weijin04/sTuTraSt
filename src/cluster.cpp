@@ -19,6 +19,11 @@ void ClusterManager::initiate_clusters(int level) {
     for (int z = 0; z < grid_->nz(); z++) {
         for (int y = 0; y < grid_->ny(); y++) {
             for (int x = 0; x < grid_->nx(); x++) {
+                // Check if point is at current level AND hasn't been assigned yet
+                // Changed from minID_C to minID_L to match Octave logic:
+                // - minID_L tracks the level at which a point was first assigned
+                // - minID_C tracks the cluster ID
+                // - We check minID_L here because we want points never assigned at any level
                 if (grid_->level_at(x, y, z) == level && 
                     grid_->minID_L(x, y, z) == 0) {
                     
@@ -185,6 +190,7 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                 
                 if (nb_level == level && nb_cluster == 0) {
                     // Check if minID_L is also 0 (not yet assigned at any level)
+                    // This matches Octave: only grow into completely unassigned points
                     if (grid_->minID_L(nb.x, nb.y, nb.z) == 0) {
                         // Add to cluster
                         grid_->minID_L(nb.x, nb.y, nb.z) = level;  // Set level

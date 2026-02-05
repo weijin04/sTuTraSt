@@ -2,6 +2,7 @@
 #include "pbc.h"
 #include <queue>
 #include <algorithm>
+#include <iostream>
 
 TransitionStateManager::TransitionStateManager(std::shared_ptr<Grid> grid)
     : grid_(grid) {
@@ -10,7 +11,41 @@ TransitionStateManager::TransitionStateManager(std::shared_ptr<Grid> grid)
 void TransitionStateManager::organize_ts_groups(const std::vector<TSPoint>& ts_list) {
     if (ts_list.empty()) return;
     
+    std::cout << "Organizing TS points into groups (26-neighbor connectivity)..." << std::endl;
+    std::cout << "  Total TS points before deduplication: " << ts_list.size() << std::endl;
+    
+    // First pass: Mark duplicate TS points at the same location
+    // MATLAB does this: if multiple TS points at same (i,j,k), mark extras as redundant
+    std::vector<bool> is_duplicate(ts_list.size(), false);
+    for (size_t i = 0; i < ts_list.size(); i++) {
+        if (is_duplicate[i]) continue;
+        
+        for (size_t j = i + 1; j < ts_list.size(); j++) {
+            if (is_duplicate[j]) continue;
+            
+            // Check if at same location
+            if (ts_list[i].x == ts_list[j].x && 
+                ts_list[i].y == ts_list[j].y && 
+                ts_list[i].z == ts_list[j].z) {
+                // Mark as duplicate
+                is_duplicate[j] = true;
+            }
+        }
+    }
+    
+    // Count non-duplicates
+    int non_duplicate_count = 0;
+    for (bool dup : is_duplicate) {
+        if (!dup) non_duplicate_count++;
+    }
+    std::cout << "  TS points after deduplication: " << non_duplicate_count << std::endl;
+    
     std::vector<bool> visited(ts_list.size(), false);
+    
+    // Mark duplicates as visited so they won't be grouped
+    for (size_t i = 0; i < ts_list.size(); i++) {
+        if (is_duplicate[i]) visited[i] = true;
+    }
     
     for (size_t i = 0; i < ts_list.size(); i++) {
         if (visited[i]) continue;
@@ -52,7 +87,8 @@ void TransitionStateManager::flood_fill_ts(const std::vector<TSPoint>& ts_list,
             group.min_coord = Coord3D(curr.x, curr.y, curr.z);
         }
         
-        // Find neighboring TS points
+        // Find neighboring TS points using 26-neighbor connectivity (3x3x3 cube)
+        // MATLAB uses all 26 neighbors, not just 6-connected
         for (size_t j = 0; j < ts_list.size(); j++) {
             if (visited[j]) continue;
             
@@ -66,7 +102,7 @@ void TransitionStateManager::flood_fill_ts(const std::vector<TSPoint>& ts_list,
             
             if (!same_pair) continue;
             
-            // Check if adjacent (6-connected)
+            // Check if adjacent (26-connected: 3x3x3 cube, excluding center)
             int dx = std::abs(curr.x - other.x);
             int dy = std::abs(curr.y - other.y);
             int dz = std::abs(curr.z - other.z);
@@ -76,7 +112,8 @@ void TransitionStateManager::flood_fill_ts(const std::vector<TSPoint>& ts_list,
             if (dy > (grid_->ny() + 1) / 2) dy = grid_->ny() - dy;
             if (dz > (grid_->nz() + 1) / 2) dz = grid_->nz() - dz;
             
-            bool adjacent = (dx + dy + dz == 1);
+            // 26-neighbor: any point within 1 grid spacing in all directions
+            bool adjacent = (dx <= 1 && dy <= 1 && dz <= 1 && (dx + dy + dz > 0));
             
             if (adjacent) {
                 visited[j] = true;

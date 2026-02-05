@@ -23,14 +23,23 @@ Grid::Grid(const std::array<int, 3>& dimensions)
 void Grid::initialize(const std::vector<std::vector<double>>& pot_data,
                      double energy_step, double energy_cutoff) {
     // Convert pot_data to E_matrix
-    // Must match MATLAB loop order: z (outer), y (middle), x (inner)
-    // MATLAB reads pot_data sequentially using this loop order
+    // Cube file stores data in x-fastest order: for z, for y, for x
+    // We read sequentially and map to E_matrix(x,y,z)
     int ind = 0;
     for (int z = 0; z < dims_[2]; z++) {
         for (int y = 0; y < dims_[1]; y++) {
             for (int x = 0; x < dims_[0]; x++) {
                 int row_ind = ind / 6;
                 int col_ind = ind % 6;
+                
+                if (row_ind >= (int)pot_data.size()) {
+                    std::cerr << "Error: row_ind " << row_ind << " >= pot_data.size() " << pot_data.size() << std::endl;
+                    return;
+                }
+                if (col_ind >= (int)pot_data[row_ind].size()) {
+                    std::cerr << "Error: col_ind " << col_ind << " >= pot_data[" << row_ind << "].size() " << pot_data[row_ind].size() << " (ind=" << ind << ")" << std::endl;
+                    return;
+                }
                 
                 double energy = pot_data[row_ind][col_ind];
                 

@@ -19,11 +19,18 @@ struct Coord3D {
 };
 
 // 3D cross vector for periodic boundaries
+// Stores boundary crossing information for neighbors
+// Indices: 0=x, 1=ip, 2=im, 3=y, 4=jp, 5=jm, 6=z, 7=kp, 8=km
 struct CrossVector {
-    int i, j, k;
+    int i, j, k;  // For simple 3D offset
+    int vals[9];  // For detailed neighbor offsets (MATLAB compatible)
     
-    CrossVector() : i(0), j(0), k(0) {}
-    CrossVector(int i_, int j_, int k_) : i(i_), j(j_), k(k_) {}
+    CrossVector() : i(0), j(0), k(0) {
+        for (int idx = 0; idx < 9; idx++) vals[idx] = 0;
+    }
+    CrossVector(int i_, int j_, int k_) : i(i_), j(j_), k(k_) {
+        for (int idx = 0; idx < 9; idx++) vals[idx] = 0;
+    }
 };
 
 // Cluster point information (equivalent to MATLAB list.C(iC).info)

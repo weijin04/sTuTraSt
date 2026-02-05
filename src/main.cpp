@@ -1,0 +1,216 @@
+#include "input_parser.h"
+#include "cube_parser.h"
+#include "grid.h"
+#include "cluster.h"
+#include "transition_state.h"
+#include "tunnel.h"
+#include "output_writer.h"
+#include "kmc.h"
+#include "pbc.h"
+
+#include <iostream>
+#include <fstream>
+#include <memory>
+#include <chrono>
+#include <cmath>
+#include <algorithm>
+
+int main(int /* argc */, char** /* argv */) {
+    std::cout << "============================================" << std::endl;
+    std::cout << "TuTraSt - C++ Implementation" << std::endl;
+    std::cout << "Tunnel and Transition State Search Algorithm" << std::endl;
+    std::cout << "============================================\n" << std::endl;
+    
+    auto start_time = std::chrono::high_resolution_clock::now();
+    
+    // Parse input parameters
+    std::cout << "Reading input parameters..." << std::endl;
+    InputParams params = InputParser::parse("input.param");
+    
+    std::cout << "Parameters:" << std::endl;
+    std::cout << "  Energy unit: " << params.energy_unit << std::endl;
+    std::cout << "  Temperatures: ";
+    for (double T : params.temperatures) {
+        std::cout << T << " ";
+    }
+    std::cout << "K" << std::endl;
+    std::cout << "  Energy step: " << params.energy_step << " kJ/mol" << std::endl;
+    std::cout << "  Energy cutoff: " << params.energy_cutoff << " kJ/mol" << std::endl;
+    
+    // Parse cube file
+    std::cout << "\nReading grid.cube..." << std::endl;
+    std::array<int, 3> ngrid;
+    std::array<double, 3> grid_size;
+    std::vector<std::vector<double>> pot_data;
+    
+    if (!CubeParser::parse("grid.cube", params.energy_unit, ngrid, grid_size, pot_data)) {
+        std::cerr << "Error: Failed to parse grid.cube" << std::endl;
+        return 1;
+    }
+    
+    // Initialize grid
+    std::cout << "\nInitializing grid..." << std::endl;
+    auto grid = std::make_shared<Grid>(ngrid);
+    grid->initialize(pot_data, params.energy_step, params.energy_cutoff);
+    
+    // Initialize managers
+    auto cluster_mgr = std::make_shared<ClusterManager>(grid);
+    auto ts_mgr = std::make_shared<TransitionStateManager>(grid);
+    auto tunnel_mgr = std::make_shared<TunnelManager>(grid, cluster_mgr, ts_mgr);
+    
+    // Main algorithm: Cluster growth and TS detection
+    std::cout << "\n============================================" << std::endl;
+    std::cout << "Starting TS search..." << std::endl;
+    std::cout << "============================================\n" << std::endl;
+    
+    int level_stop = static_cast<int>(std::ceil(params.energy_cutoff / params.energy_step));
+    std::vector<TSPoint> ts_list_all;
+    std::vector<double> E_volume;
+    
+    for (int level = grid->min_level(); level <= std::min(level_stop, grid->max_level()); level++) {
+        // Count points at this level
+        int volume = 0;
+        for (int z = 0; z < grid->nz(); z++) {
+            for (int y = 0; y < grid->ny(); y++) {
+                for (int x = 0; x < grid->nx(); x++) {
+                    if (grid->level_at(x, y, z) <= level) {
+                        volume++;
+                    }
+                }
+            }
+        }
+        E_volume.push_back(volume);
+        
+        double energy = level / grid->level_scale();
+        std::cout << "Level " << level << " (" << energy << " kJ/mol)";
+        std::cout << ", Volume: " << volume << std::endl;
+        
+        std::vector<TSPoint> ts_list;
+        std::vector<int> tunnel_list;
+        
+        // Grow existing clusters
+        cluster_mgr->grow_clusters(level, ts_list, tunnel_list);
+        
+        // Initiate new clusters
+        cluster_mgr->initiate_clusters(level);
+        
+        // Add TS points to global list
+        ts_list_all.insert(ts_list_all.end(), ts_list.begin(), ts_list.end());
+        
+        if (level % 10 == 0) {
+            std::cout << "  Clusters: " << cluster_mgr->num_clusters() 
+                     << ", TS points: " << ts_list_all.size() << std::endl;
+        }
+    }
+    
+    std::cout << "\n============================================" << std::endl;
+    std::cout << "TS search complete" << std::endl;
+    std::cout << "============================================\n" << std::endl;
+    
+    std::cout << "Total clusters: " << cluster_mgr->num_clusters() << std::endl;
+    std::cout << "Total TS points: " << ts_list_all.size() << std::endl;
+    
+    // Organize transition states
+    std::cout << "\nOrganizing transition states..." << std::endl;
+    ts_mgr->organize_ts_groups(ts_list_all);
+    std::cout << "TS groups: " << ts_mgr->ts_groups().size() << std::endl;
+    
+    // Organize tunnels
+    std::cout << "\nOrganizing tunnels..." << std::endl;
+    tunnel_mgr->organize_tunnels();
+    
+    // Generate processes
+    std::cout << "\nGenerating processes..." << std::endl;
+    std::vector<Process> processes;
+    tunnel_mgr->generate_processes(processes);
+    
+    // Calculate rates for each temperature
+    std::cout << "\n============================================" << std::endl;
+    std::cout << "Calculating transition rates..." << std::endl;
+    std::cout << "============================================\n" << std::endl;
+    
+    auto output_writer = std::make_shared<OutputWriter>(cluster_mgr, tunnel_mgr, ts_mgr);
+    
+    for (double T : params.temperatures) {
+        std::cout << "\nTemperature: " << T << " K" << std::endl;
+        
+        double RT = R_GAS * T;
+        double beta = 1.0 / RT;
+        double kappa = 0.5;  // Transmission coefficient (assumes moderate barrier crossing)
+        double prefactor = kappa * std::sqrt(1.0 / (beta * 2.0 * M_PI * params.particle_mass));
+        
+        // Calculate rates for each process
+        for (auto& proc : processes) {
+            // Get TS energy for this process
+            const auto& ts_groups = ts_mgr->ts_groups();
+            if (proc.tsgroup_id < static_cast<int>(ts_groups.size())) {
+                double TS_energy = ts_groups[proc.tsgroup_id].min_energy;
+                
+                // Get cluster min energy
+                const Cluster& from_cluster = cluster_mgr->get_cluster(proc.from_basis + 1);
+                double basin_energy = from_cluster.min_energy;
+                
+                // Calculate energy barrier
+                double dE = TS_energy - basin_energy;
+                
+                // Calculate rate: k = prefactor * exp(-dE / RT)
+                proc.rate = prefactor * std::exp(-dE / RT);
+            }
+        }
+        
+        // Write outputs for this temperature
+        std::string T_str = std::to_string(static_cast<int>(T));
+        output_writer->write_processes("processes_" + T_str + ".dat", processes);
+        
+        // Run kMC if requested
+        if (params.run_kmc && !processes.empty()) {
+            std::cout << "\nRunning kMC simulations..." << std::endl;
+            
+            // Extract basis sites from clusters
+            std::vector<Coord3D> basis_sites;
+            for (const auto& cluster : cluster_mgr->clusters()) {
+                if (cluster.id > 0 && !cluster.points.empty()) {
+                    const auto& pt = cluster.points[0];
+                    basis_sites.push_back(Coord3D(pt.x, pt.y, pt.z));
+                }
+            }
+            
+            KMC kmc(basis_sites, processes, T);
+            double D_ave = kmc.run_multiple(params.n_runs, params.n_steps, 
+                                           params.n_particles, params.print_every, 
+                                           "T" + T_str + "_");
+            
+            // Write diffusion coefficient
+            std::ofstream D_file("D_ave_" + T_str + ".dat");
+            D_file << D_ave << std::endl;
+            D_file.close();
+        }
+    }
+    
+    // Write other output files
+    std::cout << "\n============================================" << std::endl;
+    std::cout << "Writing output files..." << std::endl;
+    std::cout << "============================================\n" << std::endl;
+    
+    output_writer->write_basis("basis.dat");
+    output_writer->write_tunnel_info("tunnel_info.out");
+    output_writer->write_ts_data("TS_data.out");
+    
+    std::array<double, 3> bt = {0.0, 0.0, 0.0};
+    output_writer->write_breakthrough("BT.dat", bt);
+    
+    if (!params.temperatures.empty()) {
+        std::string T_str = std::to_string(static_cast<int>(params.temperatures[0]));
+        output_writer->write_energy_volume("Evol_" + T_str + ".dat", E_volume);
+    }
+    
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time);
+    
+    std::cout << "\n============================================" << std::endl;
+    std::cout << "Complete!" << std::endl;
+    std::cout << "Total time: " << duration.count() << " seconds" << std::endl;
+    std::cout << "============================================" << std::endl;
+    
+    return 0;
+}

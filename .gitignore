@@ -1,0 +1,47 @@
+# Build artifacts
+build/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+build/Makefile
+*.cmake
+!CMakeLists.txt
+
+# CodeQL analysis
+_codeql_*
+
+# Output files from program execution
+*.dat
+*.out
+msd*.dat
+processes_*.dat
+D_ave_*.dat
+Evol_*.dat
+T*_msd*.dat
+
+# MATLAB artifacts (keeping MATLAB files but ignore their outputs)
+*.mat
+*.asv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files
+tmp/
+temp/
+*.tmp

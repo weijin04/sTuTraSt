@@ -55,6 +55,9 @@ bool CubeParser::parse(const std::string& filename, int energy_unit,
     file >> ny >> vx2 >> vy2 >> vz2;
     file >> nz >> vx3 >> vy3 >> vz3;
     
+    // Consume the trailing newline after grid dimensions
+    std::getline(file, line);
+    
     ngrid[0] = nx;
     ngrid[1] = ny;
     ngrid[2] = nz;

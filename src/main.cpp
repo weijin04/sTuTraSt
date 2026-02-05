@@ -93,11 +93,14 @@ int main(int /* argc */, char** /* argv */) {
         std::vector<TSPoint> ts_list;
         std::vector<std::array<int,3>> tunnel_list;
         
-        // Grow existing clusters
-        cluster_mgr->grow_clusters(level, ts_list, tunnel_list, tunnel_cluster, 
-                                   tunnel_cluster_dim, params.energy_step);
+        // Grow existing clusters (only for levels > min_level)
+        // Matches Octave: if level>level_min
+        if (level > grid->min_level()) {
+            cluster_mgr->grow_clusters(level, ts_list, tunnel_list, tunnel_cluster, 
+                                       tunnel_cluster_dim, params.energy_step);
+        }
         
-        // Initiate new clusters
+        // Initiate new clusters (for all levels)
         cluster_mgr->initiate_clusters(level);
         
         // Add TS points to global list
@@ -106,6 +109,11 @@ int main(int /* argc */, char** /* argv */) {
         // Check for breakthrough using reduced row echelon form (RREF)
         // This matches the Octave implementation: echelon=rref(abs(tunnel_list))
         if (!tunnel_list.empty()) {
+            // Debug: show tunnel_list size before RREF
+            if (level <= 15) {
+                std::cout << "  tunnel_list has " << tunnel_list.size() << " entries before RREF" << std::endl;
+            }
+            
             // Compute RREF to find independent tunnel directions
             auto echelon = MatrixUtils::rref(tunnel_list);
             
@@ -113,7 +121,7 @@ int main(int /* argc */, char** /* argv */) {
                 // Update tunnel_directions with independent vectors
                 tunnel_directions = echelon;
                 
-                std::cout << "  Breakthrough in independent directions: " << std::endl;
+                std::cout << "  Breakthrough in " << echelon.size() << " independent direction(s): " << std::endl;
                 for (const auto& dir : echelon) {
                     std::cout << "    [" << dir[0] << ", " << dir[1] << ", " << dir[2] << "]" << std::endl;
                 }

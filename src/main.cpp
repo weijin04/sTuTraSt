@@ -66,6 +66,9 @@ int main(int /* argc */, char** /* argv */) {
     int level_stop = static_cast<int>(std::ceil(params.energy_cutoff / params.energy_step));
     std::vector<TSPoint> ts_list_all;
     std::vector<double> E_volume;
+    std::vector<int> tunnel_cluster;
+    std::vector<std::array<int,3>> tunnel_cluster_dim;
+    std::array<double, 3> BT = {0.0, 0.0, 0.0};  // Breakthrough energies
     
     for (int level = grid->min_level(); level <= std::min(level_stop, grid->max_level()); level++) {
         // Count points at this level
@@ -86,10 +89,11 @@ int main(int /* argc */, char** /* argv */) {
         std::cout << ", Volume: " << volume << std::endl;
         
         std::vector<TSPoint> ts_list;
-        std::vector<int> tunnel_list;
+        std::vector<std::array<int,3>> tunnel_list;
         
         // Grow existing clusters
-        cluster_mgr->grow_clusters(level, ts_list, tunnel_list);
+        cluster_mgr->grow_clusters(level, ts_list, tunnel_list, tunnel_cluster, 
+                                   tunnel_cluster_dim, params.energy_step);
         
         // Initiate new clusters
         cluster_mgr->initiate_clusters(level);
@@ -97,7 +101,34 @@ int main(int /* argc */, char** /* argv */) {
         // Add TS points to global list
         ts_list_all.insert(ts_list_all.end(), ts_list.begin(), ts_list.end());
         
-        if (level % 10 == 0) {
+        // Check for breakthrough using reduced row echelon form
+        if (!tunnel_list.empty()) {
+            // Simple breakthrough detection: check if we have non-zero directions
+            std::array<int, 3> dir_sum = {0, 0, 0};
+            for (const auto& t : tunnel_list) {
+                dir_sum[0] += std::abs(t[0]);
+                dir_sum[1] += std::abs(t[1]);
+                dir_sum[2] += std::abs(t[2]);
+            }
+            
+            std::cout << "  Breakthrough in directions: ";
+            bool has_breakthrough = false;
+            for (int d = 0; d < 3; d++) {
+                if (dir_sum[d] > 0 && BT[d] == 0.0) {
+                    BT[d] = energy;
+                    has_breakthrough = true;
+                }
+                std::cout << dir_sum[d] << " ";
+            }
+            std::cout << std::endl;
+            
+            if (has_breakthrough) {
+                std::cout << "  >>> Breakthrough detected at level " << level 
+                         << " (" << energy << " kJ/mol)" << std::endl;
+            }
+        }
+        
+        if (level % 10 == 0 || !tunnel_list.empty()) {
             std::cout << "  Clusters: " << cluster_mgr->num_clusters() 
                      << ", TS points: " << ts_list_all.size() << std::endl;
         }
@@ -196,8 +227,12 @@ int main(int /* argc */, char** /* argv */) {
     output_writer->write_tunnel_info("tunnel_info.out");
     output_writer->write_ts_data("TS_data.out");
     
-    std::array<double, 3> bt = {0.0, 0.0, 0.0};
-    output_writer->write_breakthrough("BT.dat", bt);
+    // Write breakthrough energies
+    std::cout << "\nBreakthrough energies:" << std::endl;
+    std::cout << "  A direction: " << BT[0] << " kJ/mol" << std::endl;
+    std::cout << "  B direction: " << BT[1] << " kJ/mol" << std::endl;
+    std::cout << "  C direction: " << BT[2] << " kJ/mol" << std::endl;
+    output_writer->write_breakthrough("BT.dat", BT);
     
     if (!params.temperatures.empty()) {
         std::string T_str = std::to_string(static_cast<int>(params.temperatures[0]));

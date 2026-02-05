@@ -15,15 +15,10 @@ public:
     
     // Grow existing clusters by one level
     void grow_clusters(int level, std::vector<TSPoint>& ts_list,
-                      std::vector<int>& tunnel_list);
-    
-    // Check a neighbor point during cluster growth
-    void check_neighbor(int i, int j, int k, int in, int jn, int kn,
-                       int level, int cluster_id, bool& boundary,
-                       std::vector<ClusterPoint>& temp_points,
-                       std::vector<TSPoint>& ts_list,
-                       std::vector<int>& tunnel_list,
-                       int& cluster_to_remove);
+                      std::vector<std::array<int,3>>& tunnel_list,
+                      std::vector<int>& tunnel_cluster,
+                      std::vector<std::array<int,3>>& tunnel_cluster_dim,
+                      double energy_step);
     
     // Get cluster by ID
     Cluster& get_cluster(int id);
@@ -35,10 +30,15 @@ public:
     
     int num_clusters() const { return clusters_.size(); }
     
+    // Get tunnel directions that have achieved breakthrough
+    const std::vector<std::array<int,3>>& tunnel_directions() const { return tunnel_directions_; }
+    void add_tunnel_direction(const std::array<int,3>& dir) { tunnel_directions_.push_back(dir); }
+    
 private:
     std::shared_ptr<Grid> grid_;
     std::vector<Cluster> clusters_;
     int next_cluster_id_;
+    std::vector<std::array<int,3>> tunnel_directions_;
     
     // Merge two clusters
     void merge_clusters(int cluster1_id, int cluster2_id);

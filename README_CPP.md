@@ -32,9 +32,9 @@ git clone https://github.com/weijin04/sTuTraSt.git
 cd sTuTraSt
 
 # Build the project
-mkdir build
-cd build
-cmake ..
+./build.sh
+
+# Alternative: use make (which calls build.sh)
 make
 
 # Optionally install system-wide
@@ -47,11 +47,10 @@ sudo make install
 # Install required packages
 sudo dnf install gcc-c++ cmake make
 
-# Build steps are the same as above
-mkdir build
-cd build
-cmake ..
-make
+# Clone and build (same as Ubuntu)
+git clone https://github.com/weijin04/sTuTraSt.git
+cd sTuTraSt
+./build.sh
 ```
 
 ## Usage
@@ -162,22 +161,28 @@ make
 
 ### Common Issues
 
-1. **CMake version error**: Ensure CMake 3.10+ is installed
+1. **Build failures or "No makefile found" errors**: The build script automatically handles corrupted build directories. If you encounter persistent issues, try:
+   ```bash
+   ./build.sh clean
+   ./build.sh
+   ```
+
+2. **CMake version error**: Ensure CMake 3.10+ is installed
    ```bash
    cmake --version
    ```
 
-2. **Compiler not found**: Install GCC or Clang
+3. **Compiler not found**: Install GCC or Clang
    ```bash
    g++ --version
    ```
 
-3. **Input file errors**: Check that grid.cube and input.param are in the current directory
+4. **Input file errors**: Check that grid.cube and input.param are in the current directory
    ```bash
    ls -l grid.cube input.param
    ```
 
-4. **Memory errors**: For very large grids, increase system swap space or reduce grid resolution
+5. **Memory errors**: For very large grids, increase system swap space or reduce grid resolution
 
 ## Citation
 

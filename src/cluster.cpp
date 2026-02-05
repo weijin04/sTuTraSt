@@ -9,6 +9,7 @@ ClusterManager::ClusterManager(std::shared_ptr<Grid> grid)
 
 void ClusterManager::initiate_clusters(int level) {
     // Find all points at current level that haven't been assigned to a cluster
+    int clusters_added = 0;
     for (int z = 0; z < grid_->nz(); z++) {
         for (int y = 0; y < grid_->ny(); y++) {
             for (int x = 0; x < grid_->nx(); x++) {
@@ -28,6 +29,7 @@ void ClusterManager::initiate_clusters(int level) {
                     grid_->cross_j(x, y, z) = 0;
                     grid_->cross_k(x, y, z) = 0;
                     
+                    int cluster_size = 0;
                     while (!queue.empty()) {
                         Coord3D curr = queue.front();
                         queue.pop();
@@ -42,6 +44,7 @@ void ClusterManager::initiate_clusters(int level) {
                         pt.cross_j = grid_->cross_j(curr.x, curr.y, curr.z);
                         pt.cross_k = grid_->cross_k(curr.x, curr.y, curr.z);
                         new_cluster.points.push_back(pt);
+                        cluster_size++;
                         
                         // Update min energy
                         double e = grid_->energy_at(curr.x, curr.y, curr.z);
@@ -91,10 +94,16 @@ void ClusterManager::initiate_clusters(int level) {
                         }
                     }
                     
-                    clusters_.push_back(new_cluster);
+                    if (cluster_size > 0) {
+                        clusters_.push_back(new_cluster);
+                        clusters_added++;
+                    }
                 }
             }
         }
+    }
+    if (clusters_added > 0) {
+        std::cout << "  Initiated " << clusters_added << " new cluster(s) at this level" << std::endl;
     }
 }
 

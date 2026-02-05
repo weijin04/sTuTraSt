@@ -105,6 +105,15 @@ int main(int /* argc */, char** /* argv */) {
         // Initiate new clusters (for all levels)
         cluster_mgr->initiate_clusters(level);
         
+        // Debug: Count valid clusters (id != 0) at this level
+        int valid_cluster_count = 0;
+        for (const auto& c : cluster_mgr->clusters()) {
+            if (c.id != 0) {
+                valid_cluster_count++;
+            }
+        }
+        std::cout << "  Valid clusters after level " << level << ": " << valid_cluster_count << std::endl;
+        
         // Add TS points to global list
         ts_list_all.insert(ts_list_all.end(), ts_list.begin(), ts_list.end());
         

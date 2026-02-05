@@ -186,7 +186,8 @@ int main(int /* argc */, char** /* argv */) {
     auto output_writer = std::make_shared<OutputWriter>(cluster_mgr, tunnel_mgr, ts_mgr);
     
     // Calculate average grid size (in Angstroms)
-    double ave_grid_size = (grid_size[0] + grid_size[1] + grid_size[2]) / 3.0;
+    // This is the VOXEL size, not the total box size!
+    double ave_grid_size = (grid_size[0] / ngrid[0] + grid_size[1] / ngrid[1] + grid_size[2] / ngrid[2]) / 3.0;
     
     for (double T : params.temperatures) {
         std::cout << "\nTemperature: " << T << " K" << std::endl;

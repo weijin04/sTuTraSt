@@ -27,9 +27,13 @@ void TunnelManager::organize_tunnels() {
     int tunnel_id = 1;
     for (const auto& pair : cluster_pair_to_tsgroups) {
         Tunnel tunnel;
-        tunnel.id = tunnel_id++;
+        tunnel.id = tunnel_id;
         tunnel.cluster_ids = {pair.first.first, pair.first.second};
         tunnel.tsgroup_ids = pair.second;
+        
+        // Assign tunnel_id to both clusters involved
+        cluster_mgr_->get_cluster(pair.first.first).tunnel_id = tunnel_id;
+        cluster_mgr_->get_cluster(pair.first.second).tunnel_id = tunnel_id;
         
         // Find minimum energy among all TS groups in tunnel
         tunnel.min_energy = std::numeric_limits<double>::max();
@@ -43,6 +47,7 @@ void TunnelManager::organize_tunnels() {
         tunnel.dimensions = {1, 1, 1};  // Assume 3D by default
         
         tunnels_.push_back(tunnel);
+        tunnel_id++;
     }
     
     std::cout << "Found " << tunnels_.size() << " tunnels" << std::endl;

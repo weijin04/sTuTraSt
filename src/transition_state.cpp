@@ -14,14 +14,22 @@ void TransitionStateManager::organize_ts_groups(const std::vector<TSPoint>& ts_l
     std::cout << "Organizing TS points into groups (26-neighbor connectivity)..." << std::endl;
     std::cout << "  Total TS points before deduplication: " << ts_list.size() << std::endl;
     
-    // First pass: Mark duplicate TS points at the same location
-    // MATLAB does this: if multiple TS points at same (i,j,k), mark extras as redundant
+    // First pass: Mark duplicate TS points at the same location WITHIN same cluster pair
+    // MATLAB does this per cluster pair, not globally
     std::vector<bool> is_duplicate(ts_list.size(), false);
     for (size_t i = 0; i < ts_list.size(); i++) {
         if (is_duplicate[i]) continue;
         
         for (size_t j = i + 1; j < ts_list.size(); j++) {
             if (is_duplicate[j]) continue;
+            
+            // Check if same cluster pair (order doesn't matter)
+            bool same_pair = (ts_list[i].cluster1_id == ts_list[j].cluster1_id && 
+                             ts_list[i].cluster2_id == ts_list[j].cluster2_id) ||
+                            (ts_list[i].cluster1_id == ts_list[j].cluster2_id && 
+                             ts_list[i].cluster2_id == ts_list[j].cluster1_id);
+            
+            if (!same_pair) continue;
             
             // Check if at same location
             if (ts_list[i].x == ts_list[j].x && 

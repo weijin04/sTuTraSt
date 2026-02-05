@@ -139,7 +139,8 @@ int main(int /* argc */, char** /* argv */) {
                     }
                     
                     if (BT[d] == 0.0 && sum > 0) {
-                        BT[d] = energy;
+                        // MATLAB: BT(abc)=level*energy_step
+                        BT[d] = level * params.energy_step;
                         has_breakthrough = true;
                     }
                 }
@@ -186,8 +187,10 @@ int main(int /* argc */, char** /* argv */) {
     auto output_writer = std::make_shared<OutputWriter>(cluster_mgr, tunnel_mgr, ts_mgr, params.energy_step);
     
     // Calculate average grid size (in Angstroms)
-    // This is the VOXEL size, not the total box size!
-    double ave_grid_size = (grid_size[0] / ngrid[0] + grid_size[1] / ngrid[1] + grid_size[2] / ngrid[2]) / 3.0;
+    // MATLAB uses mean(grid_size) which is the average box dimension, NOT voxel size
+    // Previous error: was using voxel size (grid_size/ngrid) causing 68x error in rates
+    double ave_grid_size = (grid_size[0] + grid_size[1] + grid_size[2]) / 3.0;
+    std::cout << "  Average grid size (box): " << ave_grid_size << " Angstroms" << std::endl;
     
     for (double T : params.temperatures) {
         std::cout << "\nTemperature: " << T << " K" << std::endl;
@@ -206,7 +209,8 @@ int main(int /* argc */, char** /* argv */) {
             }
             
             const auto& ts_group = ts_groups[proc.tsgroup_id];
-            const Cluster& from_cluster = cluster_mgr->get_cluster(proc.from_basis + 1);
+            // Use from_cluster_orig not from_basis (which gets modified to basis index)
+            const Cluster& from_cluster = cluster_mgr->get_cluster(proc.from_cluster_orig);
             
             // Calculate Boltzmann sum for TS group
             // Using factor of 1000 to convert kJ/mol to J/mol for exponential
@@ -268,8 +272,18 @@ int main(int /* argc */, char** /* argv */) {
             for (int cluster_id : unique_cluster_ids) {
                 const Cluster& cluster = cluster_mgr->get_cluster(cluster_id);
                 if (!cluster.points.empty()) {
-                    // Find minimum energy point
-                    const auto& min_pt = cluster.points[0];
+                    // Find minimum energy point (same as output_writer does)
+                    int min_idx = 0;
+                    double min_e = std::numeric_limits<double>::max();
+                    for (size_t i = 0; i < cluster.points.size(); i++) {
+                        const auto& pt = cluster.points[i];
+                        double e = cluster_mgr->grid()->energy_at(pt.x, pt.y, pt.z);
+                        if (e < min_e) {
+                            min_e = e;
+                            min_idx = i;
+                        }
+                    }
+                    const auto& min_pt = cluster.points[min_idx];
                     basis_sites.push_back(Coord3D(min_pt.x, min_pt.y, min_pt.z));
                 }
             }

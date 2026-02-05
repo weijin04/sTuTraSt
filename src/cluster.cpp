@@ -172,11 +172,16 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                                    std::vector<int>& tunnel_cluster,
                                    std::vector<std::array<int,3>>& tunnel_cluster_dim,
                                    double energy_step) {
-    // Grow each existing cluster
-    for (auto& cluster : clusters_) {
-        if (cluster.id == 0) continue;  // Skip removed clusters
+    // Iterate until no cluster grows (matches MATLAB while loop)
+    bool any_growth = true;
+    while (any_growth) {
+        any_growth = false;
         
-        std::vector<ClusterPoint> new_points;
+        // Grow each existing cluster
+        for (auto& cluster : clusters_) {
+            if (cluster.id == 0) continue;  // Skip removed clusters
+            
+            std::vector<ClusterPoint> new_points;
         
         // Check boundary points
         for (auto& pt : cluster.points) {
@@ -209,9 +214,8 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                 int nb_level = grid_->level_at(nb.x, nb.y, nb.z);
                 int nb_cluster = grid_->minID_C(nb.x, nb.y, nb.z);
                 
-                if (nb_level == level && nb_cluster == 0) {
-                    // Check if minID_L is also 0 (not yet assigned at any level)
-                    // This matches Octave: only grow into completely unassigned points
+                if (nb_level == level) {
+                    // Check if minID_L is 0 (not yet assigned at this level)
                     if (grid_->minID_L(nb.x, nb.y, nb.z) == 0) {
                         // Add to cluster
                         grid_->minID_L(nb.x, nb.y, nb.z) = level;  // Set level
@@ -345,9 +349,13 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
         }
         
         // Add new points to cluster
-        cluster.points.insert(cluster.points.end(), 
-                             new_points.begin(), new_points.end());
+        if (!new_points.empty()) {
+            any_growth = true;  // Mark that growth happened
+            cluster.points.insert(cluster.points.end(), 
+                                 new_points.begin(), new_points.end());
+        }
     }
+    } // End while loop
 }
 
 void ClusterManager::init_merge_group(int cluster_id) {

@@ -29,6 +29,10 @@ private:
     std::shared_ptr<TransitionStateManager> ts_mgr_;
     std::vector<Tunnel> tunnels_;
     
+    // Helper functions for cross vector calculation
+    Coord3D get_cluster_min_coord(const Cluster& cluster);
+    CrossVector calculate_cross_vector(const Coord3D& start, const Coord3D& end);
+    
     // Check if tunnel exists in a given dimension
     bool check_tunnel_dimension(int dim, const std::vector<int>& cluster_ids);
 };

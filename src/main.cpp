@@ -183,7 +183,7 @@ int main(int /* argc */, char** /* argv */) {
     std::cout << "Calculating transition rates..." << std::endl;
     std::cout << "============================================\n" << std::endl;
     
-    auto output_writer = std::make_shared<OutputWriter>(cluster_mgr, tunnel_mgr, ts_mgr);
+    auto output_writer = std::make_shared<OutputWriter>(cluster_mgr, tunnel_mgr, ts_mgr, params.energy_step);
     
     // Calculate average grid size (in Angstroms)
     // This is the VOXEL size, not the total box size!
@@ -244,7 +244,7 @@ int main(int /* argc */, char** /* argv */) {
         
         // Create mapping from original cluster ID to basis index
         std::map<int, int> cluster_to_basis;
-        int basis_idx = 1;  // 1-indexed
+        int basis_idx = 0;  // 0-indexed for C++ (MATLAB is 1-indexed, but we need 0-based for arrays)
         for (int cluster_id : unique_cluster_ids) {
             cluster_to_basis[cluster_id] = basis_idx++;
         }

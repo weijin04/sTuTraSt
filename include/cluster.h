@@ -30,6 +30,9 @@ public:
     
     int num_clusters() const { return clusters_.size(); }
     
+    // Get grid
+    std::shared_ptr<Grid> grid() const { return grid_; }
+    
     // Get tunnel directions that have achieved breakthrough
     const std::vector<std::array<int,3>>& tunnel_directions() const { return tunnel_directions_; }
     void add_tunnel_direction(const std::array<int,3>& dir) { tunnel_directions_.push_back(dir); }

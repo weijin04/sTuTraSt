@@ -7,8 +7,10 @@
 
 OutputWriter::OutputWriter(std::shared_ptr<ClusterManager> cluster_mgr,
                           std::shared_ptr<TunnelManager> tunnel_mgr,
-                          std::shared_ptr<TransitionStateManager> ts_mgr)
-    : cluster_mgr_(cluster_mgr), tunnel_mgr_(tunnel_mgr), ts_mgr_(ts_mgr) {
+                          std::shared_ptr<TransitionStateManager> ts_mgr,
+                          double energy_step)
+    : cluster_mgr_(cluster_mgr), tunnel_mgr_(tunnel_mgr), ts_mgr_(ts_mgr),
+      energy_step_(energy_step) {
 }
 
 void OutputWriter::write_basis(const std::string& filename, const std::vector<Process>& processes) {
@@ -37,8 +39,19 @@ void OutputWriter::write_basis(const std::string& filename, const std::vector<Pr
     for (int cluster_id : unique_cluster_ids) {
         const Cluster& cluster = cluster_mgr_->get_cluster(cluster_id);
         if (!cluster.points.empty()) {
-            // Find minimum energy point
-            const auto& min_pt = cluster.points[0];
+            // Find the actual minimum energy point in the cluster (not just first point)
+            // MATLAB uses list.finC(iC).min(2:4) which is the minimum energy point coordinates
+            int min_idx = 0;
+            double min_e = std::numeric_limits<double>::max();
+            for (size_t i = 0; i < cluster.points.size(); i++) {
+                const auto& pt = cluster.points[i];
+                double e = cluster_mgr_->grid()->energy_at(pt.x, pt.y, pt.z);
+                if (e < min_e) {
+                    min_e = e;
+                    min_idx = i;
+                }
+            }
+            const auto& min_pt = cluster.points[min_idx];
             file << min_pt.x << " " << min_pt.y << " " << min_pt.z << " "
                  << cluster.tunnel_id << " " << cluster_id << std::endl;
         }
@@ -61,9 +74,10 @@ void OutputWriter::write_processes(const std::string& filename,
     
     // MATLAB format: 13 columns
     // from_basis to_basis rate cross_i cross_j cross_k ts_cross_i ts_cross_j ts_cross_k tunnel_id tsgroup_id from_orig to_orig
+    // Note: basis indices are written as 1-indexed for MATLAB compatibility
     for (const auto& proc : processes) {
-        file << std::setw(23) << proc.from_basis << " " 
-             << std::setw(23) << proc.to_basis << " "
+        file << std::setw(23) << (proc.from_basis + 1) << " "  // Convert to 1-indexed
+             << std::setw(23) << (proc.to_basis + 1) << " "    // Convert to 1-indexed
              << std::setw(23) << proc.rate << " "
              << std::setw(23) << proc.cross.i << " " 
              << std::setw(23) << proc.cross.j << " " 
@@ -72,7 +86,7 @@ void OutputWriter::write_processes(const std::string& filename,
              << std::setw(23) << proc.ts_cross.j << " " 
              << std::setw(23) << proc.ts_cross.k << " "
              << std::setw(23) << proc.tunnel_id << " "
-             << std::setw(23) << proc.tsgroup_id << " "
+             << std::setw(23) << (proc.tsgroup_id + 1) << " "  // Convert to 1-indexed
              << std::setw(23) << proc.from_cluster_orig << " "
              << std::setw(23) << proc.to_cluster_orig << std::endl;
     }
@@ -120,12 +134,13 @@ void OutputWriter::write_ts_data(const std::string& filename) {
     
     const auto& ts_groups = ts_mgr_->ts_groups();
     
-    // Format: TSgroup_ID level 0 x-0.5 y-0.5 z-0.5 (matching MATLAB)
+    // Format: TSgroup_ID ceil(level*energy_step) 0 x-0.5 y-0.5 z-0.5 (matching MATLAB)
+    // MATLAB: [TS_groupID ceil(TS_levels*energy_step) TS_zeroes TS_coords-0.5]
     for (size_t group_idx = 0; group_idx < ts_groups.size(); group_idx++) {
         const auto& group = ts_groups[group_idx];
         for (const auto& pt : group.points) {
             file << (group_idx + 1) << " "  // TSgroup_ID (1-indexed)
-                 << pt.level << " "
+                 << std::ceil(pt.level * energy_step_) << " "  // Energy value, not level
                  << "0 "  // Zero column (MATLAB has this)
                  << (pt.x - 0.5) << " " 
                  << (pt.y - 0.5) << " "

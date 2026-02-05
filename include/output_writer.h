@@ -13,7 +13,8 @@ class OutputWriter {
 public:
     OutputWriter(std::shared_ptr<ClusterManager> cluster_mgr,
                 std::shared_ptr<TunnelManager> tunnel_mgr,
-                std::shared_ptr<TransitionStateManager> ts_mgr);
+                std::shared_ptr<TransitionStateManager> ts_mgr,
+                double energy_step);
     
     // Write basis sites (only clusters involved in processes)
     void write_basis(const std::string& filename, const std::vector<Process>& processes);
@@ -40,6 +41,7 @@ private:
     std::shared_ptr<ClusterManager> cluster_mgr_;
     std::shared_ptr<TunnelManager> tunnel_mgr_;
     std::shared_ptr<TransitionStateManager> ts_mgr_;
+    double energy_step_;
 };
 
 #endif // OUTPUT_WRITER_H

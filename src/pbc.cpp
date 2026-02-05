@@ -54,19 +54,19 @@ std::vector<Coord3D> PBC::get_neighbors(int x, int y, int z,
             for (int dz = -1; dz <= 1; dz++) {
                 if (dx == 0 && dy == 0 && dz == 0) continue;
                 
-                int nx_coord = x + dx;
-                int ny_coord = y + dy;
-                int nz_coord = z + dz;
+                int neighbor_x = x + dx;
+                int neighbor_y = y + dy;
+                int neighbor_z = z + dz;
                 
                 // Apply periodic boundaries
-                if (nx_coord < 0) nx_coord += nx;
-                if (nx_coord >= nx) nx_coord -= nx;
-                if (ny_coord < 0) ny_coord += ny;
-                if (ny_coord >= ny) ny_coord -= ny;
-                if (nz_coord < 0) nz_coord += nz;
-                if (nz_coord >= nz) nz_coord -= nz;
+                if (neighbor_x < 0) neighbor_x += nx;
+                if (neighbor_x >= nx) neighbor_x -= nx;
+                if (neighbor_y < 0) neighbor_y += ny;
+                if (neighbor_y >= ny) neighbor_y -= ny;
+                if (neighbor_z < 0) neighbor_z += nz;
+                if (neighbor_z >= nz) neighbor_z -= nz;
                 
-                neighbors.push_back(Coord3D(nx_coord, ny_coord, nz_coord));
+                neighbors.push_back(Coord3D(neighbor_x, neighbor_y, neighbor_z));
             }
         }
     }

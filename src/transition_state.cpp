@@ -71,10 +71,10 @@ void TransitionStateManager::flood_fill_ts(const std::vector<TSPoint>& ts_list,
             int dy = std::abs(curr.y - other.y);
             int dz = std::abs(curr.z - other.z);
             
-            // Account for periodic boundaries
-            if (dx > grid_->nx() / 2) dx = grid_->nx() - dx;
-            if (dy > grid_->ny() / 2) dy = grid_->ny() - dy;
-            if (dz > grid_->nz() / 2) dz = grid_->nz() - dz;
+            // Account for periodic boundaries (shortest distance through wrapping)
+            if (dx > (grid_->nx() + 1) / 2) dx = grid_->nx() - dx;
+            if (dy > (grid_->ny() + 1) / 2) dy = grid_->ny() - dy;
+            if (dz > (grid_->nz() + 1) / 2) dz = grid_->nz() - dz;
             
             bool adjacent = (dx + dy + dz == 1);
             

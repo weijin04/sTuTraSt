@@ -2,6 +2,7 @@
 #include <set>
 #include <map>
 #include <iostream>
+#include <limits>
 
 TunnelManager::TunnelManager(std::shared_ptr<Grid> grid,
                             std::shared_ptr<ClusterManager> cluster_mgr,
@@ -31,7 +32,7 @@ void TunnelManager::organize_tunnels() {
         tunnel.tsgroup_ids = pair.second;
         
         // Find minimum energy among all TS groups in tunnel
-        tunnel.min_energy = 1e10;
+        tunnel.min_energy = std::numeric_limits<double>::max();
         for (int ts_group_idx : pair.second) {
             if (ts_groups[ts_group_idx].min_energy < tunnel.min_energy) {
                 tunnel.min_energy = ts_groups[ts_group_idx].min_energy;

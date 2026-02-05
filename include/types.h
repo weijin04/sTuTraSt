@@ -121,6 +121,6 @@ struct InputParams {
 };
 
 // Constants
-const double R_GAS = 8.3144621;  // Gas constant in J/(mol·K)
+const double R_GAS = 8.3144621;  // Gas constant in J/(mol·K) - note: divide by 1000 for kJ/(mol·K)
 
 #endif // TYPES_H

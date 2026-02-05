@@ -215,7 +215,8 @@ Cluster& ClusterManager::get_cluster(int id) {
             return cluster;
         }
     }
-    // Return dummy if not found (shouldn't happen)
+    // Should not happen in normal operation - indicates programming error
+    std::cerr << "Warning: Cluster ID " << id << " not found" << std::endl;
     static Cluster dummy;
     return dummy;
 }
@@ -226,6 +227,7 @@ const Cluster& ClusterManager::get_cluster(int id) const {
             return cluster;
         }
     }
+    std::cerr << "Warning: Cluster ID " << id << " not found" << std::endl;
     static Cluster dummy;
     return dummy;
 }

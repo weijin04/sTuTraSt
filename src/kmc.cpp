@@ -124,7 +124,7 @@ double KMC::run_multiple(int n_runs, int n_steps, int n_particles,
         }
         
         double avg_msd = sum_msd / count;
-        double avg_time = (start_idx + msd.size()) / 2.0;
+        double avg_time = (start_idx + msd.size() - 1) / 2.0;
         double D = avg_msd / (6.0 * avg_time);
         
         diffusion_coefficients.push_back(D);

@@ -136,7 +136,7 @@ int main(int /* argc */, char** /* argv */) {
         
         double RT = R_GAS * T;
         double beta = 1.0 / RT;
-        double kappa = 0.5;
+        double kappa = 0.5;  // Transmission coefficient (assumes moderate barrier crossing)
         double prefactor = kappa * std::sqrt(1.0 / (beta * 2.0 * M_PI * params.particle_mass));
         
         // Calculate rates for each process

@@ -58,7 +58,6 @@ fi
 
 # Create build directory
 mkdir -p "$BUILD_DIR"
-cd "$BUILD_DIR"
 
 # Determine build type
 BUILD_TYPE="Release"
@@ -71,11 +70,23 @@ fi
 
 # Configure with CMake
 print_info "Configuring with CMake..."
-cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
+if ! cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=$BUILD_TYPE; then
+    print_error "CMake configuration failed!"
+    print_info "Trying again with a clean build directory..."
+    rm -rf "$BUILD_DIR"
+    mkdir -p "$BUILD_DIR"
+    if ! cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=$BUILD_TYPE; then
+        print_error "CMake configuration failed even after cleaning!"
+        exit 1
+    fi
+fi
 
 # Build
 print_info "Compiling..."
-make -j$(nproc)
+if ! cmake --build "$BUILD_DIR" -j $(nproc); then
+    print_error "Compilation failed!"
+    exit 1
+fi
 
 # Check if build succeeded
 if [ -f "$BUILD_DIR/tutrast" ]; then

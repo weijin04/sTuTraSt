@@ -17,6 +17,7 @@ set(SOURCES
     src/pbc.cpp
     src/output_writer.cpp
     src/kmc.cpp
+    src/matrix_utils.cpp
 )
 
 # Header files
@@ -31,6 +32,7 @@ set(HEADERS
     include/output_writer.h
     include/kmc.h
     include/types.h
+    include/matrix_utils.h
 )
 
 # Create executable

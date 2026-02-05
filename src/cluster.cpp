@@ -10,12 +10,44 @@ ClusterManager::ClusterManager(std::shared_ptr<Grid> grid)
 
 void ClusterManager::initiate_clusters(int level) {
     // Find all points at current level that haven't been assigned to a cluster
+    // Only create new cluster if point and all its neighbors are unassigned (minID_L == 0)
+    // This matches the Octave logic: if sum(neighbor_id)==0
     int clusters_added = 0;
+    int candidates_checked = 0;
+    int candidates_skipped = 0;
+    
     for (int z = 0; z < grid_->nz(); z++) {
         for (int y = 0; y < grid_->ny(); y++) {
             for (int x = 0; x < grid_->nx(); x++) {
+                // Check if point is at current level AND hasn't been assigned yet
+                // Changed from minID_C to minID_L to match Octave logic:
+                // - minID_L tracks the level at which a point was first assigned
+                // - minID_C tracks the cluster ID
+                // - We check minID_L here because we want points never assigned at any level
                 if (grid_->level_at(x, y, z) == level && 
-                    grid_->minID_C(x, y, z) == 0) {
+                    grid_->minID_L(x, y, z) == 0) {
+                    
+                    candidates_checked++;
+                    
+                    // Check if all 6 neighbors have minID_L == 0
+                    int ip, im, jp, jm, kp, km;
+                    CrossVector cv;
+                    PBC::apply(x, y, z, 
+                              grid_->nx(), grid_->ny(), grid_->nz(),
+                              ip, im, jp, jm, kp, km, cv);
+                    
+                    bool all_neighbors_unassigned = 
+                        (grid_->minID_L(ip, y, z) == 0) &&
+                        (grid_->minID_L(im, y, z) == 0) &&
+                        (grid_->minID_L(x, jp, z) == 0) &&
+                        (grid_->minID_L(x, jm, z) == 0) &&
+                        (grid_->minID_L(x, y, kp) == 0) &&
+                        (grid_->minID_L(x, y, km) == 0);
+                    
+                    if (!all_neighbors_unassigned) {
+                        candidates_skipped++;
+                        continue;  // Skip this point - it will be added during cluster growth
+                    }
                     
                     // Start new cluster with flood fill
                     Cluster new_cluster;
@@ -24,7 +56,8 @@ void ClusterManager::initiate_clusters(int level) {
                     
                     std::queue<Coord3D> queue;
                     queue.push(Coord3D(x, y, z));
-                    grid_->minID_C(x, y, z) = new_cluster.id;
+                    grid_->minID_L(x, y, z) = level;  // Set level assignment
+                    grid_->minID_C(x, y, z) = new_cluster.id;  // Set cluster assignment
                     // Initialize cross vector for first point
                     grid_->cross_i(x, y, z) = 0;
                     grid_->cross_j(x, y, z) = 0;
@@ -84,8 +117,9 @@ void ClusterManager::initiate_clusters(int level) {
                         for (const auto& nb_info : neighbors) {
                             const auto& nb = nb_info.coord;
                             if (grid_->level_at(nb.x, nb.y, nb.z) == level &&
-                                grid_->minID_C(nb.x, nb.y, nb.z) == 0) {
-                                grid_->minID_C(nb.x, nb.y, nb.z) = new_cluster.id;
+                                grid_->minID_L(nb.x, nb.y, nb.z) == 0) {
+                                grid_->minID_L(nb.x, nb.y, nb.z) = level;  // Set level
+                                grid_->minID_C(nb.x, nb.y, nb.z) = new_cluster.id;  // Set cluster
                                 // Set cross vector for neighbor
                                 grid_->cross_i(nb.x, nb.y, nb.z) = nb_info.cross_i;
                                 grid_->cross_j(nb.x, nb.y, nb.z) = nb_info.cross_j;
@@ -104,8 +138,11 @@ void ClusterManager::initiate_clusters(int level) {
             }
         }
     }
-    if (clusters_added > 0) {
+    if (clusters_added > 0 || candidates_checked > 0) {
         std::cout << "  Initiated " << clusters_added << " new cluster(s) at this level" << std::endl;
+        if (candidates_checked > 0) {
+            std::cout << "    (checked " << candidates_checked << " candidates, skipped " << candidates_skipped << ")" << std::endl;
+        }
     }
 }
 
@@ -152,29 +189,34 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                 int nb_cluster = grid_->minID_C(nb.x, nb.y, nb.z);
                 
                 if (nb_level == level && nb_cluster == 0) {
-                    // Add to cluster
-                    grid_->minID_C(nb.x, nb.y, nb.z) = cluster.id;
-                    grid_->cross_i(nb.x, nb.y, nb.z) = nb_info.cross_i;
-                    grid_->cross_j(nb.x, nb.y, nb.z) = nb_info.cross_j;
-                    grid_->cross_k(nb.x, nb.y, nb.z) = nb_info.cross_k;
-                    
-                    ClusterPoint new_pt;
-                    new_pt.x = nb.x;
-                    new_pt.y = nb.y;
-                    new_pt.z = nb.z;
-                    new_pt.level = level;
-                    new_pt.boundary = 1;
-                    new_pt.cross_i = nb_info.cross_i;
-                    new_pt.cross_j = nb_info.cross_j;
-                    new_pt.cross_k = nb_info.cross_k;
-                    new_points.push_back(new_pt);
-                    
-                    still_boundary = true;
-                    
-                    // Update cluster min energy
-                    double e = grid_->energy_at(nb.x, nb.y, nb.z);
-                    if (e < cluster.min_energy) {
-                        cluster.min_energy = e;
+                    // Check if minID_L is also 0 (not yet assigned at any level)
+                    // This matches Octave: only grow into completely unassigned points
+                    if (grid_->minID_L(nb.x, nb.y, nb.z) == 0) {
+                        // Add to cluster
+                        grid_->minID_L(nb.x, nb.y, nb.z) = level;  // Set level
+                        grid_->minID_C(nb.x, nb.y, nb.z) = cluster.id;  // Set cluster
+                        grid_->cross_i(nb.x, nb.y, nb.z) = nb_info.cross_i;
+                        grid_->cross_j(nb.x, nb.y, nb.z) = nb_info.cross_j;
+                        grid_->cross_k(nb.x, nb.y, nb.z) = nb_info.cross_k;
+                        
+                        ClusterPoint new_pt;
+                        new_pt.x = nb.x;
+                        new_pt.y = nb.y;
+                        new_pt.z = nb.z;
+                        new_pt.level = level;
+                        new_pt.boundary = 1;
+                        new_pt.cross_i = nb_info.cross_i;
+                        new_pt.cross_j = nb_info.cross_j;
+                        new_pt.cross_k = nb_info.cross_k;
+                        new_points.push_back(new_pt);
+                        
+                        still_boundary = true;
+                        
+                        // Update cluster min energy
+                        double e = grid_->energy_at(nb.x, nb.y, nb.z);
+                        if (e < cluster.min_energy) {
+                            cluster.min_energy = e;
+                        }
                     }
                 }
                 else if (nb_cluster == cluster.id) {

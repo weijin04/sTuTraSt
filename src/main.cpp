@@ -7,6 +7,7 @@
 #include "output_writer.h"
 #include "kmc.h"
 #include "pbc.h"
+#include "matrix_utils.h"
 
 #include <iostream>
 #include <fstream>
@@ -69,6 +70,7 @@ int main(int /* argc */, char** /* argv */) {
     std::vector<int> tunnel_cluster;
     std::vector<std::array<int,3>> tunnel_cluster_dim;
     std::array<double, 3> BT = {0.0, 0.0, 0.0};  // Breakthrough energies
+    std::vector<std::array<int,3>> tunnel_directions;  // Independent tunnel directions (RREF result)
     
     for (int level = grid->min_level(); level <= std::min(level_stop, grid->max_level()); level++) {
         // Count points at this level
@@ -91,40 +93,59 @@ int main(int /* argc */, char** /* argv */) {
         std::vector<TSPoint> ts_list;
         std::vector<std::array<int,3>> tunnel_list;
         
-        // Grow existing clusters
-        cluster_mgr->grow_clusters(level, ts_list, tunnel_list, tunnel_cluster, 
-                                   tunnel_cluster_dim, params.energy_step);
+        // Grow existing clusters (only for levels > min_level)
+        // Matches Octave: if level>level_min
+        if (level > grid->min_level()) {
+            cluster_mgr->grow_clusters(level, ts_list, tunnel_list, tunnel_cluster, 
+                                       tunnel_cluster_dim, params.energy_step);
+        }
         
-        // Initiate new clusters
+        // Initiate new clusters (for all levels)
         cluster_mgr->initiate_clusters(level);
         
         // Add TS points to global list
         ts_list_all.insert(ts_list_all.end(), ts_list.begin(), ts_list.end());
         
-        // Check for breakthrough using reduced row echelon form
+        // Check for breakthrough using reduced row echelon form (RREF)
+        // This matches the Octave implementation: echelon=rref(abs(tunnel_list))
         if (!tunnel_list.empty()) {
-            // Simple breakthrough detection: check if we have non-zero directions
-            std::array<int, 3> dir_sum = {0, 0, 0};
-            for (const auto& t : tunnel_list) {
-                dir_sum[0] += std::abs(t[0]);
-                dir_sum[1] += std::abs(t[1]);
-                dir_sum[2] += std::abs(t[2]);
+            // Debug: show tunnel_list size before RREF (for early levels)
+            const int DEBUG_MAX_LEVEL = 15;
+            if (level <= DEBUG_MAX_LEVEL) {
+                std::cout << "  tunnel_list has " << tunnel_list.size() << " entries before RREF" << std::endl;
             }
             
-            std::cout << "  Breakthrough in directions: ";
-            bool has_breakthrough = false;
-            for (int d = 0; d < 3; d++) {
-                if (dir_sum[d] > 0 && BT[d] == 0.0) {
-                    BT[d] = energy;
-                    has_breakthrough = true;
+            // Compute RREF to find independent tunnel directions
+            auto echelon = MatrixUtils::rref(tunnel_list);
+            
+            if (!echelon.empty()) {
+                // Update tunnel_directions with independent vectors
+                tunnel_directions = echelon;
+                
+                std::cout << "  Breakthrough in " << echelon.size() << " independent direction(s): " << std::endl;
+                for (const auto& dir : echelon) {
+                    std::cout << "    [" << dir[0] << ", " << dir[1] << ", " << dir[2] << "]" << std::endl;
                 }
-                std::cout << dir_sum[d] << " ";
-            }
-            std::cout << std::endl;
-            
-            if (has_breakthrough) {
-                std::cout << "  >>> Breakthrough detected at level " << level 
-                         << " (" << energy << " kJ/mol)" << std::endl;
+                
+                // Check each axis for breakthrough
+                // Matches Octave: if BT(abc)==0 && sum(list.tunnel_directions(:,abc))>0
+                bool has_breakthrough = false;
+                for (int d = 0; d < 3; d++) {
+                    int sum = 0;
+                    for (const auto& dir : tunnel_directions) {
+                        sum += dir[d];
+                    }
+                    
+                    if (BT[d] == 0.0 && sum > 0) {
+                        BT[d] = energy;
+                        has_breakthrough = true;
+                    }
+                }
+                
+                if (has_breakthrough) {
+                    std::cout << "  >>> Breakthrough detected at level " << level 
+                             << " (" << energy << " kJ/mol)" << std::endl;
+                }
             }
         }
         

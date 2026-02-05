@@ -28,6 +28,9 @@ void TunnelManager::organize_tunnels() {
     
     // Create tunnels from merge groups that contain clusters with TS
     int tunnel_id = 1;
+    // Track which TSgroups have been processed to avoid duplicates
+    std::set<size_t> processed_tsgroups;
+    
     for (const auto& merge_group : merge_groups) {
         // Check if any cluster in this merge group has TS connections
         bool has_tunnel = false;
@@ -47,6 +50,11 @@ void TunnelManager::organize_tunnels() {
         
         // Find all TS groups connecting clusters in this merge group
         for (size_t i = 0; i < ts_groups.size(); i++) {
+            // Skip if already processed by another merge group
+            if (processed_tsgroups.find(i) != processed_tsgroups.end()) {
+                continue;
+            }
+            
             // Check if both clusters are in this merge group
             bool c1_in_group = std::find(merge_group.begin(), merge_group.end(), 
                                         ts_groups[i].cluster1_id) != merge_group.end();
@@ -54,8 +62,10 @@ void TunnelManager::organize_tunnels() {
                                         ts_groups[i].cluster2_id) != merge_group.end();
             
             // TS connects clusters within group OR connects to external cluster
+            // But only add once (deduplication via processed_tsgroups)
             if (c1_in_group || c2_in_group) {
                 tunnel.tsgroup_ids.push_back(i);
+                processed_tsgroups.insert(i);
             }
         }
         

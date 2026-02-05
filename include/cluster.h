@@ -40,8 +40,19 @@ private:
     int next_cluster_id_;
     std::vector<std::array<int,3>> tunnel_directions_;
     
-    // Merge two clusters
-    void merge_clusters(int cluster1_id, int cluster2_id);
+    // Merge groups tracking (MATLAB list.M equivalent)
+    // Each vector contains cluster IDs that have been merged together
+    std::vector<std::vector<int>> merge_groups_;
+    
+    // Initialize merge groups for a cluster
+    void init_merge_group(int cluster_id);
+    
+    // Find which merge group a cluster belongs to
+    int find_merge_group(int cluster_id);
+    
+    // Merge two clusters (full implementation)
+    void merge_clusters(int cluster1_id, int cluster2_id, int idiff, int jdiff, int kdiff, 
+                       std::vector<TSPoint>& ts_list);
 };
 
 #endif // CLUSTER_H

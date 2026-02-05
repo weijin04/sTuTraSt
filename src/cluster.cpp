@@ -2,6 +2,7 @@
 #include "pbc.h"
 #include <queue>
 #include <iostream>
+#include <algorithm>
 
 ClusterManager::ClusterManager(std::shared_ptr<Grid> grid)
     : grid_(grid), next_cluster_id_(1) {
@@ -96,6 +97,7 @@ void ClusterManager::initiate_clusters(int level) {
                     
                     if (cluster_size > 0) {
                         clusters_.push_back(new_cluster);
+                        init_merge_group(new_cluster.id);  // Initialize merge group
                         clusters_added++;
                     }
                 }
@@ -234,8 +236,7 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                     
                     if (dE < energy_step) {
                         // Merge clusters - barrier too small
-                        // TODO: Implement full merge logic
-                        std::cout << "  Merging clusters " << cluster.id << " and " << nb_cluster << " (dE=" << dE << ")" << std::endl;
+                        merge_clusters(cluster.id, nb_cluster, idiff, jdiff, kdiff, ts_list);
                     } else {
                         // Create transition state
                         // Choose higher energy point as TS
@@ -281,6 +282,144 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
     }
 }
 
+void ClusterManager::init_merge_group(int cluster_id) {
+    // Check if cluster already in a merge group
+    for (const auto& group : merge_groups_) {
+        for (int cid : group) {
+            if (cid == cluster_id) {
+                return;  // Already in a group
+            }
+        }
+    }
+    // Create new merge group with just this cluster
+    merge_groups_.push_back({cluster_id});
+}
+
+int ClusterManager::find_merge_group(int cluster_id) {
+    for (size_t i = 0; i < merge_groups_.size(); i++) {
+        for (int cid : merge_groups_[i]) {
+            if (cid == cluster_id) {
+                return static_cast<int>(i);
+            }
+        }
+    }
+    return -1;
+}
+
+void ClusterManager::merge_clusters(int cluster1_id, int cluster2_id, 
+                                    int idiff, int jdiff, int kdiff,
+                                    std::vector<TSPoint>& ts_list) {
+    std::cout << "    Merging clusters " << cluster2_id << " into " << cluster1_id 
+              << " (cross diff: " << idiff << "," << jdiff << "," << kdiff << ")" << std::endl;
+    
+    // Find the clusters
+    Cluster* c1 = nullptr;
+    Cluster* c2 = nullptr;
+    for (auto& cluster : clusters_) {
+        if (cluster.id == cluster1_id) c1 = &cluster;
+        if (cluster.id == cluster2_id) c2 = &cluster;
+    }
+    
+    if (!c1 || !c2) {
+        std::cerr << "Error: Clusters not found for merge" << std::endl;
+        return;
+    }
+    
+    // Find merge groups
+    int group1 = find_merge_group(cluster1_id);
+    int group2 = find_merge_group(cluster2_id);
+    
+    // Check if clusters are already in same merge group
+    bool same_group = (group1 >= 0 && group1 == group2);
+    
+    // If cross vectors differ and not same group, need to update cross vectors
+    if ((idiff != 0 || jdiff != 0 || kdiff != 0) && !same_group) {
+        // Update cross vectors for all points in cluster2's merge group
+        std::vector<int> clusters_to_update;
+        if (group2 >= 0) {
+            clusters_to_update = merge_groups_[group2];
+        } else {
+            clusters_to_update = {cluster2_id};
+        }
+        
+        for (int cid : clusters_to_update) {
+            for (auto& cluster : clusters_) {
+                if (cluster.id == cid) {
+                    for (auto& pt : cluster.points) {
+                        grid_->cross_i(pt.x, pt.y, pt.z) += idiff;
+                        grid_->cross_j(pt.x, pt.y, pt.z) += jdiff;
+                        grid_->cross_k(pt.x, pt.y, pt.z) += kdiff;
+                        pt.cross_i += idiff;
+                        pt.cross_j += jdiff;
+                        pt.cross_k += kdiff;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    
+    // Merge the merge groups if different
+    if (group1 >= 0 && group2 >= 0 && group1 != group2) {
+        // Merge group2 into group1
+        merge_groups_[group1].insert(merge_groups_[group1].end(),
+                                     merge_groups_[group2].begin(),
+                                     merge_groups_[group2].end());
+        // Remove group2
+        merge_groups_.erase(merge_groups_.begin() + group2);
+    } else if (group1 >= 0 && group2 < 0) {
+        // Add cluster2 to group1
+        merge_groups_[group1].push_back(cluster2_id);
+    } else if (group1 < 0 && group2 >= 0) {
+        // Add cluster1 to group2
+        merge_groups_[group2].push_back(cluster1_id);
+    } else {
+        // Neither in a group, create new merged group
+        merge_groups_.push_back({cluster1_id, cluster2_id});
+    }
+    
+    // Transfer all points from cluster2 to cluster1
+    c1->points.insert(c1->points.end(), c2->points.begin(), c2->points.end());
+    
+    // Update min energy
+    if (c2->min_energy < c1->min_energy) {
+        c1->min_energy = c2->min_energy;
+    }
+    
+    // Update minID_matrix for all cluster2 points
+    for (const auto& pt : c2->points) {
+        grid_->minID_C(pt.x, pt.y, pt.z) = cluster1_id;
+    }
+    
+    // Mark cluster2 as removed
+    c2->id = 0;
+    c2->points.clear();
+    
+    // Update TS list - change cluster2_id references to cluster1_id
+    for (auto& ts : ts_list) {
+        if (ts.cluster1_id == cluster2_id) {
+            ts.cluster1_id = cluster1_id;
+        }
+        if (ts.cluster2_id == cluster2_id) {
+            ts.cluster2_id = cluster1_id;
+        }
+    }
+    
+    // Remove TS points that are now internal (both clusters are the same)
+    ts_list.erase(
+        std::remove_if(ts_list.begin(), ts_list.end(),
+            [this](const TSPoint& ts) {
+                // Remove if both clusters are same or if TS point is now internal
+                if (ts.cluster1_id == ts.cluster2_id) {
+                    grid_->ts_matrix(ts.x, ts.y, ts.z) = 0;
+                    return true;
+                }
+                return false;
+            }),
+        ts_list.end()
+    );
+}
+
 Cluster& ClusterManager::get_cluster(int id) {
     for (auto& cluster : clusters_) {
         if (cluster.id == id) {
@@ -302,14 +441,4 @@ const Cluster& ClusterManager::get_cluster(int id) const {
     std::cerr << "Warning: Cluster ID " << id << " not found" << std::endl;
     static Cluster dummy;
     return dummy;
-}
-
-void ClusterManager::merge_clusters(int cluster1_id, int cluster2_id) {
-    // Simplified merge: mark cluster2 as merged into cluster1
-    for (auto& cluster : clusters_) {
-        if (cluster.id == cluster2_id) {
-            cluster.id = 0;  // Mark as removed
-            break;
-        }
-    }
 }

@@ -165,6 +165,10 @@ int main(int /* argc */, char** /* argv */) {
     std::cout << "Total clusters: " << cluster_mgr->num_clusters() << std::endl;
     std::cout << "Total TS points: " << ts_list_all.size() << std::endl;
     
+    // Compact clusters: filter out merged clusters (id==0) and renumber sequentially
+    // This matches MATLAB's cluster filtering step
+    std::map<int, int> cluster_id_mapping = cluster_mgr->compact_clusters(ts_list_all);
+    
     // Organize transition states
     std::cout << "\nOrganizing transition states..." << std::endl;
     ts_mgr->organize_ts_groups(ts_list_all);

@@ -3,6 +3,7 @@
 #include <queue>
 #include <iostream>
 #include <algorithm>
+#include <map>
 
 ClusterManager::ClusterManager(std::shared_ptr<Grid> grid)
     : grid_(grid), next_cluster_id_(1) {
@@ -503,4 +504,57 @@ const Cluster& ClusterManager::get_cluster(int id) const {
     std::cerr << "Warning: Cluster ID " << id << " not found" << std::endl;
     static Cluster dummy;
     return dummy;
+}
+
+std::map<int, int> ClusterManager::compact_clusters(std::vector<TSPoint>& ts_list_all) {
+    std::cout << "\nCompacting clusters..." << std::endl;
+    std::cout << "  Before: " << clusters_.size() << " clusters" << std::endl;
+    
+    // Count valid clusters (id != 0)
+    int valid_count = 0;
+    for (const auto& cluster : clusters_) {
+        if (cluster.id != 0) {
+            valid_count++;
+        }
+    }
+    std::cout << "  Valid clusters (id != 0): " << valid_count << std::endl;
+    
+    // Create mapping from old cluster ID to new cluster ID
+    std::map<int, int> id_mapping;
+    std::vector<Cluster> valid_clusters;
+    int new_id = 1;
+    
+    for (const auto& cluster : clusters_) {
+        if (cluster.id != 0) {  // Only keep non-merged clusters
+            Cluster new_cluster = cluster;
+            id_mapping[cluster.id] = new_id;
+            new_cluster.id = new_id;
+            valid_clusters.push_back(new_cluster);
+            new_id++;
+        }
+    }
+    
+    // Replace clusters vector with compacted version
+    clusters_ = valid_clusters;
+    
+    // Update TS list cluster IDs
+    for (auto& ts : ts_list_all) {
+        if (id_mapping.find(ts.cluster1_id) != id_mapping.end()) {
+            ts.cluster1_id = id_mapping[ts.cluster1_id];
+        }
+        if (id_mapping.find(ts.cluster2_id) != id_mapping.end()) {
+            ts.cluster2_id = id_mapping[ts.cluster2_id];
+        }
+    }
+    
+    // Update minID_C matrix with new cluster IDs
+    for (const auto& cluster : clusters_) {
+        for (const auto& pt : cluster.points) {
+            grid_->minID_C(pt.x, pt.y, pt.z) = cluster.id;
+        }
+    }
+    
+    std::cout << "  After: " << clusters_.size() << " clusters (sequential IDs 1-" << clusters_.size() << ")" << std::endl;
+    
+    return id_mapping;
 }

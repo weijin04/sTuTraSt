@@ -5,6 +5,7 @@
 #include "grid.h"
 #include <vector>
 #include <memory>
+#include <map>
 
 class ClusterManager {
 public:
@@ -36,6 +37,10 @@ public:
     // Get tunnel directions that have achieved breakthrough
     const std::vector<std::array<int,3>>& tunnel_directions() const { return tunnel_directions_; }
     void add_tunnel_direction(const std::array<int,3>& dir) { tunnel_directions_.push_back(dir); }
+    
+    // Compact clusters: filter out merged clusters (id==0) and renumber sequentially
+    // Returns mapping from old cluster ID to new cluster ID
+    std::map<int, int> compact_clusters(std::vector<TSPoint>& ts_list_all);
     
 private:
     std::shared_ptr<Grid> grid_;

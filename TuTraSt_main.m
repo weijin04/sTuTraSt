@@ -97,7 +97,7 @@ clear all
     list.TS_all=[];
     BT=[0 0 0];
     tot_tunnel_min=0;
-save('restart1.mat', '-v7.3')
+%save('restart1.mat', '-v7.3')
     
     %load('restart1.mat')
     %energy_step=input(11+nTemp);
@@ -251,7 +251,7 @@ save('restart1.mat', '-v7.3')
     fid_BT = fopen(BT_out,'w');
     fprintf(fid_BT,'%s',num2str(BT));
     fclose(fid_BT);
-save('restart2.mat', '-v7.3')
+%save('restart2.mat', '-v7.3')
     
     %load('restart2.mat')
     %Print cluster list   %%%%remove cluster with single point??
@@ -538,7 +538,7 @@ end
     end
     fclose(fid_sites_min);
     fclose(tunnel_file);
-save('E_matrix.mat','E_matrix', '-v7.3')
-save('list.mat','list', '-v7.3')
+%save('E_matrix.mat','E_matrix', '-v7.3')
+%save('list.mat','list', '-v7.3')
 
 

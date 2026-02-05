@@ -91,6 +91,58 @@ bool CubeParser::parse(const std::string& filename, int energy_unit,
     
     file.close();
     
+    std::cout << "Read " << pot_data.size() << " rows from cube file" << std::endl;
+    
+    // IMPORTANT: Reorder pot_data to match MATLAB cube2xsfdat behavior
+    // MATLAB reads cube file in x-y-z order (into data_mat), then reorders to z-y-x (into pot_data)
+    // We need to do the same reordering
+    std::vector<std::vector<double>> reordered_data;
+    reordered_data.resize(n_rows);
+    for (int i = 0; i < n_rows; i++) {
+        reordered_data[i].reserve(6);
+    }
+    
+    int new_ind = 0;
+    int error_count = 0;
+    for (int z = 0; z < nz; z++) {
+        for (int y = 0; y < ny; y++) {
+            for (int x = 0; x < nx; x++) {
+                // Original cube file has data in x-fastest order: for z, for y, for x
+                int orig_ind = z * (nx * ny) + y * nx + x;
+                int orig_row = orig_ind / 6;
+                int orig_col = orig_ind % 6;
+                
+                int new_row = new_ind / 6;
+                int new_col = new_ind % 6;
+                
+                if (orig_row >= (int)pot_data.size()) {
+                    if (error_count < 5) {
+                        std::cerr << "Error: orig_row " << orig_row << " >= pot_data.size() " << pot_data.size() << std::endl;
+                    }
+                    error_count++;
+                    continue;
+                }
+                if (orig_col >= (int)pot_data[orig_row].size()) {
+                    if (error_count < 5) {
+                        std::cerr << "Error: orig_col " << orig_col << " >= pot_data[" << orig_row << "].size() " << pot_data[orig_row].size() << std::endl;
+                    }
+                    error_count++;
+                    continue;
+                }
+                
+                reordered_data[new_row].push_back(pot_data[orig_row][orig_col]);
+                new_ind++;
+            }
+        }
+    }
+    
+    if (error_count > 0) {
+        std::cerr << "Total " << error_count << " reordering errors" << std::endl;
+        return false;
+    }
+    
+    pot_data = reordered_data;
+    
     std::cout << "Loaded cube file:" << std::endl;
     std::cout << "  Grid dimensions: " << nx << " x " << ny << " x " << nz << std::endl;
     std::cout << "  Grid size: " << grid_size[0] << " x " 

@@ -16,6 +16,19 @@ void ClusterManager::initiate_clusters(int level) {
     int candidates_checked = 0;
     int candidates_skipped = 0;
     
+    // Debug: count total points at this level
+    int total_at_level = 0;
+    for (int z = 0; z < grid_->nz(); z++) {
+        for (int y = 0; y < grid_->ny(); y++) {
+            for (int x = 0; x < grid_->nx(); x++) {
+                if (grid_->level_at(x, y, z) == level) {
+                    total_at_level++;
+                }
+            }
+        }
+    }
+    std::cout << "  Total points at level " << level << ": " << total_at_level << std::endl;
+    
     for (int z = 0; z < grid_->nz(); z++) {
         for (int y = 0; y < grid_->ny(); y++) {
             for (int x = 0; x < grid_->nx(); x++) {
@@ -116,15 +129,21 @@ void ClusterManager::initiate_clusters(int level) {
                         
                         for (const auto& nb_info : neighbors) {
                             const auto& nb = nb_info.coord;
-                            if (grid_->level_at(nb.x, nb.y, nb.z) == level &&
-                                grid_->minID_L(nb.x, nb.y, nb.z) == 0) {
-                                grid_->minID_L(nb.x, nb.y, nb.z) = level;  // Set level
-                                grid_->minID_C(nb.x, nb.y, nb.z) = new_cluster.id;  // Set cluster
-                                // Set cross vector for neighbor
-                                grid_->cross_i(nb.x, nb.y, nb.z) = nb_info.cross_i;
-                                grid_->cross_j(nb.x, nb.y, nb.z) = nb_info.cross_j;
-                                grid_->cross_k(nb.x, nb.y, nb.z) = nb_info.cross_k;
-                                queue.push(nb);
+                            // Match MATLAB logic: check minID_L==0 FIRST, then level
+                            // If unassigned but different level, don't add to cluster (boundary)
+                            // If unassigned and same level, add to cluster
+                            if (grid_->minID_L(nb.x, nb.y, nb.z) == 0) {
+                                if (grid_->level_at(nb.x, nb.y, nb.z) == level) {
+                                    grid_->minID_L(nb.x, nb.y, nb.z) = level;  // Set level
+                                    grid_->minID_C(nb.x, nb.y, nb.z) = new_cluster.id;  // Set cluster
+                                    // Set cross vector for neighbor
+                                    grid_->cross_i(nb.x, nb.y, nb.z) = nb_info.cross_i;
+                                    grid_->cross_j(nb.x, nb.y, nb.z) = nb_info.cross_j;
+                                    grid_->cross_k(nb.x, nb.y, nb.z) = nb_info.cross_k;
+                                    queue.push(nb);
+                                }
+                                // else: neighbor is unassigned but at different level
+                                // This marks current point as boundary (matches MATLAB line 44, 61, etc.)
                             }
                         }
                     }
@@ -133,6 +152,7 @@ void ClusterManager::initiate_clusters(int level) {
                         clusters_.push_back(new_cluster);
                         init_merge_group(new_cluster.id);  // Initialize merge group
                         clusters_added++;
+                        std::cout << "    Cluster " << new_cluster.id << ": " << cluster_size << " points" << std::endl;
                     }
                 }
             }

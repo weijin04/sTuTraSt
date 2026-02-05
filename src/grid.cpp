@@ -23,6 +23,8 @@ Grid::Grid(const std::array<int, 3>& dimensions)
 void Grid::initialize(const std::vector<std::vector<double>>& pot_data,
                      double energy_step, double energy_cutoff) {
     // Convert pot_data to E_matrix
+    // Must match MATLAB loop order: z (outer), y (middle), x (inner)
+    // MATLAB reads pot_data sequentially using this loop order
     int ind = 0;
     for (int z = 0; z < dims_[2]; z++) {
         for (int y = 0; y < dims_[1]; y++) {
@@ -49,6 +51,13 @@ void Grid::initialize(const std::vector<std::vector<double>>& pot_data,
     min_energy_ = *std::min_element(E_matrix_.begin(), E_matrix_.end());
     max_energy_ = *std::max_element(E_matrix_.begin(), E_matrix_.end());
     
+    // Debug: print first 20 energy values
+    std::cout << "First 20 energy values: ";
+    for (int i = 0; i < std::min(20, (int)E_matrix_.size()); i++) {
+        std::cout << E_matrix_[i] << " ";
+    }
+    std::cout << std::endl;
+    
     // Replace max values
     for (size_t i = 0; i < E_matrix_.size(); i++) {
         if (E_matrix_[i] == max_energy_) {
@@ -64,6 +73,13 @@ void Grid::initialize(const std::vector<std::vector<double>>& pot_data,
     
     int level_stop = static_cast<int>(std::ceil(energy_cutoff / energy_step));
     
+    std::cout << "Level calculation:" << std::endl;
+    std::cout << "  min_energy: " << min_energy_ << " kJ/mol" << std::endl;
+    std::cout << "  max_energy: " << max_energy_ << " kJ/mol" << std::endl;
+    std::cout << "  nlevel: " << nlevel << std::endl;
+    std::cout << "  level_scale: " << level_scale_ << std::endl;
+    std::cout << "  level_stop: " << level_stop << std::endl;
+    
     // Convert energies to levels
     for (size_t i = 0; i < E_matrix_.size(); i++) {
         double pot_value_shifted = E_matrix_[i] - min_energy_;
@@ -73,6 +89,22 @@ void Grid::initialize(const std::vector<std::vector<double>>& pot_data,
     
     level_min_ = *std::min_element(level_matrix_.begin(), level_matrix_.end());
     level_max_ = *std::max_element(level_matrix_.begin(), level_matrix_.end());
+    
+    // Debug: print first 20 level values
+    std::cout << "First 20 level values: ";
+    for (int i = 0; i < std::min(20, (int)level_matrix_.size()); i++) {
+        std::cout << level_matrix_[i] << " ";
+    }
+    std::cout << std::endl;
+    
+    // Debug: count points at each level (first 5 levels)
+    for (int lev = level_min_; lev <= std::min(level_min_ + 4, level_max_); lev++) {
+        int count = 0;
+        for (size_t i = 0; i < level_matrix_.size(); i++) {
+            if (level_matrix_[i] == lev) count++;
+        }
+        std::cout << "  Level " << lev << ": " << count << " points" << std::endl;
+    }
     
     std::cout << "Grid initialized:" << std::endl;
     std::cout << "  Energy range: " << min_energy_ << " - " << max_energy_ << " kJ/mol" << std::endl;

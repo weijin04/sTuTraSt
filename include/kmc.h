@@ -24,7 +24,8 @@ public:
     
     // Run single kMC simulation
     void run(int n_steps, int n_particles, 
-             std::vector<std::array<double, 3>>& msd_per_direction);
+             std::vector<std::array<double, 3>>& msd_per_direction,
+             std::vector<double>& time_points_out);
     
     // Run multiple simulations and compute average diffusion coefficient per direction
     // Returns [D_x, err_x, D_y, err_y, D_z, err_z]

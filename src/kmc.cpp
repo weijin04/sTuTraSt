@@ -24,7 +24,7 @@ void KMC::precompute_displacements() {
     // MATLAB: distances = (basis_sites(proc(:,2),1:3) - basis_sites(proc(:,1),1:3) + 
     //                     [ngrid(1)*proc(:,4) ngrid(2)*proc(:,5) ngrid(3)*proc(:,6)]) .* grid_size(1);
     //
-    // Note: grid_size is the VOXEL spacing in Angstroms (not total box size)
+    // Note: grid_size is the VOXEL spacing in Angstroms (matching MATLAB)
     // basis_sites are grid indices (integers)
     
     process_displacements_.resize(processes_.size());
@@ -43,17 +43,16 @@ void KMC::precompute_displacements() {
         double dz_grid = (to_site.z - from_site.z) + ngrid_[2] * proc.cross.k;
         
         // Convert to Angstroms by multiplying by voxel spacing
-        // MATLAB uses grid_size(1) for all directions - we'll use the first element
-        double voxel_spacing = grid_size_[0];
-        
-        process_displacements_[i].x = dx_grid * voxel_spacing;
-        process_displacements_[i].y = dy_grid * voxel_spacing;
-        process_displacements_[i].z = dz_grid * voxel_spacing;
+        // MATLAB uses grid_size(1) for all directions - we'll use per-direction for accuracy
+        process_displacements_[i].x = dx_grid * grid_size_[0];
+        process_displacements_[i].y = dy_grid * grid_size_[1];
+        process_displacements_[i].z = dz_grid * grid_size_[2];
     }
 }
 
 void KMC::run(int n_steps, int n_particles, 
-             std::vector<std::array<double, 3>>& msd_per_direction) {
+             std::vector<std::array<double, 3>>& msd_per_direction,
+             std::vector<double>& time_points_out) {
     // Initialize particles at random basis sites
     std::vector<int> particle_sites(n_particles);
     std::uniform_int_distribution<int> site_dist(0, basis_sites_.size() - 1);
@@ -67,14 +66,12 @@ void KMC::run(int n_steps, int n_particles,
     std::vector<Position3D> initial_positions(n_particles);
     
     // Initialize positions to basis site locations in Angstroms
-    // grid_size is the voxel spacing in Angstroms
-    double voxel_spacing = grid_size_[0];
-    
+    // grid_size is the voxel spacing in Angstroms (matching MATLAB)
     for (int i = 0; i < n_particles; i++) {
         const Coord3D& site = basis_sites_[particle_sites[i]];
-        particle_positions[i].x = site.x * voxel_spacing;
-        particle_positions[i].y = site.y * voxel_spacing;
-        particle_positions[i].z = site.z * voxel_spacing;
+        particle_positions[i].x = site.x * grid_size_[0];
+        particle_positions[i].y = site.y * grid_size_[1];
+        particle_positions[i].z = site.z * grid_size_[2];
         initial_positions[i] = particle_positions[i];
     }
     
@@ -172,9 +169,8 @@ void KMC::run(int n_steps, int n_particles,
         msd_per_direction[step + 1][2] = msd_z / n_particles;
     }
     
-    // Store time points in the first "column" of msd data (we'll use a modified structure)
-    // For now, just keep MSD - fitting will use step indices as proxy for time
-    // TODO: Could store time_points separately if needed for more accurate fitting
+    // Return time points for accurate diffusion coefficient calculation
+    time_points_out = time_points;
 }
 
 std::array<double, 2> KMC::linear_fit(const std::vector<double>& x, const std::vector<double>& y) {
@@ -205,15 +201,16 @@ std::array<double, 6> KMC::run_multiple(int n_runs, int n_steps, int n_particles
     
     for (int run = 0; run < n_runs; run++) {
         std::vector<std::array<double, 3>> msd;
-        this->run(n_steps, n_particles, msd);
+        std::vector<double> time_points;
+        this->run(n_steps, n_particles, msd, time_points);
         
         // Write MSD to file (similar to MATLAB format)
         std::string msd_filename = output_prefix + "msd" + std::to_string(run+1) + ".dat";
         std::ofstream msd_file(msd_filename);
         
         for (size_t i = 0; i < msd.size(); i += print_every) {
-            // Format: step msd_x msd_y msd_z
-            msd_file << i << " " << msd[i][0] << " " << msd[i][1] << " " << msd[i][2] << std::endl;
+            // Format: time msd_x msd_y msd_z (matching MATLAB format)
+            msd_file << time_points[i] << " " << msd[i][0] << " " << msd[i][1] << " " << msd[i][2] << std::endl;
         }
         msd_file.close();
         
@@ -226,21 +223,20 @@ std::array<double, 6> KMC::run_multiple(int n_runs, int n_steps, int n_particles
             int start_idx = msd.size() / 2;
             int end_idx = msd.size();
             
-            std::vector<double> time_points;
+            std::vector<double> time_values;
             std::vector<double> msd_values;
             
             for (int i = start_idx; i < end_idx; i++) {
-                time_points.push_back(static_cast<double>(i));
+                // CRITICAL FIX: Use actual time (seconds), not step index!
+                time_values.push_back(time_points[i]);
                 msd_values.push_back(msd[i][dir]);
             }
             
-            // Linear fit
-            auto [slope, intercept] = linear_fit(time_points, msd_values);
+            // Linear fit: MSD vs time
+            auto [slope, intercept] = linear_fit(time_values, msd_values);
             
             // MATLAB: D(iD) = 0.5 * msd_fit(1) * 1e-16
-            // slope is in Å²/step
-            // We need to convert: Å²/step → Å²/s → cm²/s
-            // For now, assume 1 step = 1 time unit (will need proper time tracking later)
+            // slope is now in Å²/s (not Å²/step!)
             // 1e-16 converts Å²/s to cm²/s (since 1 Å = 1e-8 cm, so 1 Å² = 1e-16 cm²)
             diffusion_coefficients[run][dir] = 0.5 * slope * 1e-16;
         }

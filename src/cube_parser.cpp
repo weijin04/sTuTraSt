@@ -62,11 +62,13 @@ bool CubeParser::parse(const std::string& filename, int energy_unit,
     ngrid[1] = ny;
     ngrid[2] = nz;
     
-    // Calculate grid sizes (in Angstroms, convert from Bohr)
+    // Calculate grid sizes (voxel spacing in Angstroms, convert from Bohr)
+    // MATLAB: a_grid = sqrt(vx^2 + vy^2 + vz^2) * 0.529177249
+    // For axis-aligned grids, this simplifies to abs(v) * BOHR_TO_ANGSTROM
     const double BOHR_TO_ANGSTROM = 0.529177;
-    grid_size[0] = std::abs(vx1 * nx) * BOHR_TO_ANGSTROM;
-    grid_size[1] = std::abs(vy2 * ny) * BOHR_TO_ANGSTROM;
-    grid_size[2] = std::abs(vz3 * nz) * BOHR_TO_ANGSTROM;
+    grid_size[0] = std::abs(vx1) * BOHR_TO_ANGSTROM;  // Voxel spacing, NOT box size
+    grid_size[1] = std::abs(vy2) * BOHR_TO_ANGSTROM;
+    grid_size[2] = std::abs(vz3) * BOHR_TO_ANGSTROM;
     
     // Skip atom lines
     for (int i = 0; i < std::abs(n_atoms); i++) {

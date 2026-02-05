@@ -288,14 +288,20 @@ int main(int /* argc */, char** /* argv */) {
                 }
             }
             
-            KMC kmc(basis_sites, processes, T);
-            double D_ave = kmc.run_multiple(params.n_runs, params.n_steps, 
+            // Create KMC simulator with grid info for proper unit conversions
+            KMC kmc(basis_sites, processes, T, ngrid, grid_size);
+            
+            // Run simulations
+            auto D_ave = kmc.run_multiple(params.n_runs, params.n_steps, 
                                            params.n_particles, params.print_every, 
                                            "T" + T_str + "_");
             
-            // Write diffusion coefficient
+            // Write diffusion coefficient: D_x err_x D_y err_y D_z err_z (6 values like MATLAB)
             std::ofstream D_file("D_ave_" + T_str + ".dat");
-            D_file << D_ave << std::endl;
+            D_file << std::scientific;
+            D_file << D_ave[0] << " " << D_ave[1] << " " 
+                   << D_ave[2] << " " << D_ave[3] << " "
+                   << D_ave[4] << " " << D_ave[5] << std::endl;
             D_file.close();
         }
     }

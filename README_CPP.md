@@ -31,10 +31,10 @@ sudo apt-get install build-essential cmake
 git clone https://github.com/weijin04/sTuTraSt.git
 cd sTuTraSt
 
-# Build the project (recommended method)
+# Build the project
 ./build.sh
 
-# Or use make
+# Alternative: use make (which calls build.sh)
 make
 
 # Optionally install system-wide

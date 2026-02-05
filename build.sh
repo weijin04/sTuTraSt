@@ -83,7 +83,7 @@ fi
 
 # Build
 print_info "Compiling..."
-if ! cmake --build "$BUILD_DIR" -j $(nproc); then
+if ! cmake --build "$BUILD_DIR" -j $(nproc 2>/dev/null || echo 4); then
     print_error "Compilation failed!"
     exit 1
 fi

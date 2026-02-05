@@ -15,6 +15,8 @@
 #include <chrono>
 #include <cmath>
 #include <algorithm>
+#include <set>
+#include <map>
 
 int main(int /* argc */, char** /* argv */) {
     std::cout << "============================================" << std::endl;
@@ -183,31 +185,73 @@ int main(int /* argc */, char** /* argv */) {
     
     auto output_writer = std::make_shared<OutputWriter>(cluster_mgr, tunnel_mgr, ts_mgr);
     
+    // Calculate average grid size (in Angstroms)
+    double ave_grid_size = (grid_size[0] + grid_size[1] + grid_size[2]) / 3.0;
+    
     for (double T : params.temperatures) {
         std::cout << "\nTemperature: " << T << " K" << std::endl;
         
-        double RT = R_GAS * T;
-        double beta = 1.0 / RT;
-        double kappa = 0.5;  // Transmission coefficient (assumes moderate barrier crossing)
+        double RT = R_GAS * T;  // J/(mol·K) * K = J/mol
+        double beta = 1.0 / RT;  // mol/J
+        double kappa = 0.5;  // Transmission coefficient
         double prefactor = kappa * std::sqrt(1.0 / (beta * 2.0 * M_PI * params.particle_mass));
         
-        // Calculate rates for each process
+        // Calculate rates for each process using Boltzmann partition functions
+        // Following MATLAB: k = prefactor * Bsum_TS / (Bsum_cluster * ave_grid_size * 1e-10)
         for (auto& proc : processes) {
-            // Get TS energy for this process
             const auto& ts_groups = ts_mgr->ts_groups();
-            if (proc.tsgroup_id < static_cast<int>(ts_groups.size())) {
-                double TS_energy = ts_groups[proc.tsgroup_id].min_energy;
-                
-                // Get cluster min energy
-                const Cluster& from_cluster = cluster_mgr->get_cluster(proc.from_basis + 1);
-                double basin_energy = from_cluster.min_energy;
-                
-                // Calculate energy barrier
-                double dE = TS_energy - basin_energy;
-                
-                // Calculate rate: k = prefactor * exp(-dE / RT)
-                proc.rate = prefactor * std::exp(-dE / RT);
+            if (proc.tsgroup_id >= static_cast<int>(ts_groups.size())) {
+                continue;
             }
+            
+            const auto& ts_group = ts_groups[proc.tsgroup_id];
+            const Cluster& from_cluster = cluster_mgr->get_cluster(proc.from_basis + 1);
+            
+            // Calculate Boltzmann sum for TS group
+            // Using factor of 1000 to convert kJ/mol to J/mol for exponential
+            double Bsum_TS = 0.0;
+            for (const auto& ts_pt : ts_group.points) {
+                double dE_TS = ts_pt.energy - from_cluster.min_energy;
+                Bsum_TS += std::exp(-1000.0 * beta * dE_TS);
+            }
+            
+            // Calculate Boltzmann sum for cluster states
+            double Bsum_cluster = 0.0;
+            for (const auto& pt : from_cluster.points) {
+                double E_pt = grid->energy_at(pt.x, pt.y, pt.z);
+                double dE_cluster = E_pt - from_cluster.min_energy;
+                Bsum_cluster += std::exp(-1000.0 * beta * dE_cluster);
+            }
+            
+            // Add TS contribution to cluster partition function
+            Bsum_cluster += Bsum_TS;
+            
+            // Calculate rate constant
+            // prefactor has units of Hz (1/s)
+            // Division by (ave_grid_size * 1e-10) converts to proper rate units
+            proc.rate = prefactor * Bsum_TS / (Bsum_cluster * ave_grid_size * 1e-10);
+        }
+        
+        // Map cluster indices to basis site indices
+        // In MATLAB: tunnel_cluster_list = unique(processes(:,1:2))
+        // Only clusters involved in processes become basis sites
+        std::set<int> unique_cluster_ids;
+        for (const auto& proc : processes) {
+            unique_cluster_ids.insert(proc.from_cluster_orig);
+            unique_cluster_ids.insert(proc.to_cluster_orig);
+        }
+        
+        // Create mapping from original cluster ID to basis index
+        std::map<int, int> cluster_to_basis;
+        int basis_idx = 1;  // 1-indexed
+        for (int cluster_id : unique_cluster_ids) {
+            cluster_to_basis[cluster_id] = basis_idx++;
+        }
+        
+        // Update process basis indices
+        for (auto& proc : processes) {
+            proc.from_basis = cluster_to_basis[proc.from_cluster_orig];
+            proc.to_basis = cluster_to_basis[proc.to_cluster_orig];
         }
         
         // Write outputs for this temperature
@@ -218,12 +262,14 @@ int main(int /* argc */, char** /* argv */) {
         if (params.run_kmc && !processes.empty()) {
             std::cout << "\nRunning kMC simulations..." << std::endl;
             
-            // Extract basis sites from clusters
+            // Extract basis sites from clusters involved in processes (MATLAB-compatible)
             std::vector<Coord3D> basis_sites;
-            for (const auto& cluster : cluster_mgr->clusters()) {
-                if (cluster.id > 0 && !cluster.points.empty()) {
-                    const auto& pt = cluster.points[0];
-                    basis_sites.push_back(Coord3D(pt.x, pt.y, pt.z));
+            for (int cluster_id : unique_cluster_ids) {
+                const Cluster& cluster = cluster_mgr->get_cluster(cluster_id);
+                if (!cluster.points.empty()) {
+                    // Find minimum energy point
+                    const auto& min_pt = cluster.points[0];
+                    basis_sites.push_back(Coord3D(min_pt.x, min_pt.y, min_pt.z));
                 }
             }
             
@@ -244,7 +290,7 @@ int main(int /* argc */, char** /* argv */) {
     std::cout << "Writing output files..." << std::endl;
     std::cout << "============================================\n" << std::endl;
     
-    output_writer->write_basis("basis.dat");
+    output_writer->write_basis("basis.dat", processes);
     output_writer->write_tunnel_info("tunnel_info.out");
     output_writer->write_ts_data("TS_data.out");
     

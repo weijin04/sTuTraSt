@@ -15,8 +15,8 @@ public:
                 std::shared_ptr<TunnelManager> tunnel_mgr,
                 std::shared_ptr<TransitionStateManager> ts_mgr);
     
-    // Write basis sites
-    void write_basis(const std::string& filename);
+    // Write basis sites (only clusters involved in processes)
+    void write_basis(const std::string& filename, const std::vector<Process>& processes);
     
     // Write processes for a given temperature
     void write_processes(const std::string& filename,

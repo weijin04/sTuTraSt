@@ -64,6 +64,8 @@ void TunnelManager::generate_processes(std::vector<Process>& processes) {
             fwd.rate = 0.0;  // Will be calculated later with temperature
             fwd.tunnel_id = tunnel.id;
             fwd.tsgroup_id = tsgroup_id;
+            fwd.from_cluster_orig = tsgroup.cluster1_id;  // Original cluster ID (1-indexed)
+            fwd.to_cluster_orig = tsgroup.cluster2_id;
             
             // Get cross vector
             const Cluster& c1 = cluster_mgr_->get_cluster(tsgroup.cluster1_id);
@@ -82,6 +84,8 @@ void TunnelManager::generate_processes(std::vector<Process>& processes) {
             rev.rate = 0.0;
             rev.tunnel_id = tunnel.id;
             rev.tsgroup_id = tsgroup_id;
+            rev.from_cluster_orig = tsgroup.cluster2_id;
+            rev.to_cluster_orig = tsgroup.cluster1_id;
             rev.cross = CrossVector(0, 0, 0);
             rev.ts_cross = CrossVector(0, 0, 0);
             

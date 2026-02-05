@@ -94,15 +94,18 @@ struct Tunnel {
 
 // Process structure (basis transition)
 struct Process {
-    int from_basis;
-    int to_basis;
-    double rate;
-    CrossVector cross;
-    CrossVector ts_cross;
-    int tunnel_id;
-    int tsgroup_id;
+    int from_basis;   // Column 1
+    int to_basis;     // Column 2
+    double rate;      // Column 3
+    CrossVector cross;     // Columns 4-6: process cross vector
+    CrossVector ts_cross;  // Columns 7-9: TS cross vector
+    int tunnel_id;    // Column 10
+    int tsgroup_id;   // Column 11
+    int from_cluster_orig;  // Column 12: original cluster ID for from
+    int to_cluster_orig;    // Column 13: original cluster ID for to
     
-    Process() : from_basis(0), to_basis(0), rate(0.0), tunnel_id(0), tsgroup_id(0) {}
+    Process() : from_basis(0), to_basis(0), rate(0.0), tunnel_id(0), tsgroup_id(0),
+                from_cluster_orig(0), to_cluster_orig(0) {}
 };
 
 // Input parameters

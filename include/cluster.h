@@ -42,6 +42,9 @@ public:
     // Returns mapping from old cluster ID to new cluster ID
     std::map<int, int> compact_clusters(std::vector<TSPoint>& ts_list_all);
     
+    // Get merge groups (for tunnel organization)
+    const std::vector<std::vector<int>>& merge_groups() const { return merge_groups_; }
+    
 private:
     std::shared_ptr<Grid> grid_;
     std::vector<Cluster> clusters_;

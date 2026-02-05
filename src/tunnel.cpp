@@ -1,6 +1,7 @@
 #include "tunnel.h"
 #include <set>
 #include <map>
+#include <algorithm>
 #include <iostream>
 #include <limits>
 
@@ -11,33 +12,67 @@ TunnelManager::TunnelManager(std::shared_ptr<Grid> grid,
 }
 
 void TunnelManager::organize_tunnels() {
-    // Group TS groups by cluster pairs to identify tunnels
-    std::map<std::pair<int,int>, std::vector<int>> cluster_pair_to_tsgroups;
+    // Use merge groups to organize tunnels (matches MATLAB approach)
+    // Each merge group becomes one tunnel, with all clusters in group sharing tunnel_id
     
+    const auto& merge_groups = cluster_mgr_->merge_groups();
     const auto& ts_groups = ts_mgr_->ts_groups();
+    const auto& clusters = cluster_mgr_->clusters();
     
-    for (size_t i = 0; i < ts_groups.size(); i++) {
-        int c1 = std::min(ts_groups[i].cluster1_id, ts_groups[i].cluster2_id);
-        int c2 = std::max(ts_groups[i].cluster1_id, ts_groups[i].cluster2_id);
-        
-        cluster_pair_to_tsgroups[{c1, c2}].push_back(i);
+    // Build set of cluster IDs that have TS connections (tunnel_cluster equivalent)
+    std::set<int> clusters_with_ts;
+    for (const auto& ts_group : ts_groups) {
+        clusters_with_ts.insert(ts_group.cluster1_id);
+        clusters_with_ts.insert(ts_group.cluster2_id);
     }
     
-    // Create tunnels from cluster pairs
+    // Create tunnels from merge groups that contain clusters with TS
     int tunnel_id = 1;
-    for (const auto& pair : cluster_pair_to_tsgroups) {
+    for (const auto& merge_group : merge_groups) {
+        // Check if any cluster in this merge group has TS connections
+        bool has_tunnel = false;
+        for (int cluster_id : merge_group) {
+            if (clusters_with_ts.count(cluster_id) > 0) {
+                has_tunnel = true;
+                break;
+            }
+        }
+        
+        if (!has_tunnel) continue;
+        
+        // Create tunnel for this merge group
         Tunnel tunnel;
         tunnel.id = tunnel_id;
-        tunnel.cluster_ids = {pair.first.first, pair.first.second};
-        tunnel.tsgroup_ids = pair.second;
+        tunnel.cluster_ids = merge_group;
         
-        // Assign tunnel_id to both clusters involved
-        cluster_mgr_->get_cluster(pair.first.first).tunnel_id = tunnel_id;
-        cluster_mgr_->get_cluster(pair.first.second).tunnel_id = tunnel_id;
+        // Find all TS groups connecting clusters in this merge group
+        for (size_t i = 0; i < ts_groups.size(); i++) {
+            // Check if both clusters are in this merge group
+            bool c1_in_group = std::find(merge_group.begin(), merge_group.end(), 
+                                        ts_groups[i].cluster1_id) != merge_group.end();
+            bool c2_in_group = std::find(merge_group.begin(), merge_group.end(), 
+                                        ts_groups[i].cluster2_id) != merge_group.end();
+            
+            // TS connects clusters within group OR connects to external cluster
+            if (c1_in_group || c2_in_group) {
+                tunnel.tsgroup_ids.push_back(i);
+            }
+        }
+        
+        // Assign same tunnel_id to all clusters in merge group
+        for (int cluster_id : merge_group) {
+            // Only assign if cluster still exists (id != 0)
+            if (cluster_id > 0 && cluster_id <= static_cast<int>(clusters.size())) {
+                auto& cluster = cluster_mgr_->get_cluster(cluster_id);
+                if (cluster.id != 0) {
+                    cluster.tunnel_id = tunnel_id;
+                }
+            }
+        }
         
         // Find minimum energy among all TS groups in tunnel
         tunnel.min_energy = std::numeric_limits<double>::max();
-        for (int ts_group_idx : pair.second) {
+        for (int ts_group_idx : tunnel.tsgroup_ids) {
             if (ts_groups[ts_group_idx].min_energy < tunnel.min_energy) {
                 tunnel.min_energy = ts_groups[ts_group_idx].min_energy;
             }
@@ -50,7 +85,8 @@ void TunnelManager::organize_tunnels() {
         tunnel_id++;
     }
     
-    std::cout << "Found " << tunnels_.size() << " tunnels" << std::endl;
+    std::cout << "Found " << tunnels_.size() << " tunnels from " 
+              << merge_groups.size() << " merge groups" << std::endl;
 }
 
 void TunnelManager::generate_processes(std::vector<Process>& processes) {

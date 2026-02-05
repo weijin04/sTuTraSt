@@ -554,7 +554,29 @@ std::map<int, int> ClusterManager::compact_clusters(std::vector<TSPoint>& ts_lis
         }
     }
     
+    // Update merge_groups with new cluster IDs
+    for (auto& group : merge_groups_) {
+        for (int& cluster_id : group) {
+            if (id_mapping.find(cluster_id) != id_mapping.end()) {
+                cluster_id = id_mapping[cluster_id];
+            } else {
+                // This cluster was merged away, mark as 0
+                cluster_id = 0;
+            }
+        }
+        // Remove zero entries from group
+        group.erase(std::remove(group.begin(), group.end(), 0), group.end());
+    }
+    
+    // Remove empty merge groups
+    merge_groups_.erase(
+        std::remove_if(merge_groups_.begin(), merge_groups_.end(),
+                      [](const std::vector<int>& group) { return group.empty(); }),
+        merge_groups_.end()
+    );
+    
     std::cout << "  After: " << clusters_.size() << " clusters (sequential IDs 1-" << clusters_.size() << ")" << std::endl;
+    std::cout << "  Merge groups: " << merge_groups_.size() << std::endl;
     
     return id_mapping;
 }

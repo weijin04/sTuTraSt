@@ -64,6 +64,11 @@ private:
     // Merge two clusters (full implementation)
     void merge_clusters(int cluster1_id, int cluster2_id, int idiff, int jdiff, int kdiff, 
                        std::vector<TSPoint>& ts_list);
+    
+    // Merge merge groups only (when creating TS between clusters)
+    // This is needed to match MATLAB behavior where clusters connected by TS
+    // are in the same merge group even though they're not fully merged
+    void merge_only_merge_groups(int cluster1_id, int cluster2_id, int idiff, int jdiff, int kdiff);
 };
 
 #endif // CLUSTER_H

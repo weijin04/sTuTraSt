@@ -327,6 +327,11 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                             
                             grid_->ts_matrix(ts_x, ts_y, ts_z) = 1;
                         }
+                        
+                        // Merge merge groups (MATLAB behavior)
+                        // Even though clusters not fully merged (dE >= energy_step),
+                        // they should be in same merge group if connected by TS
+                        merge_only_merge_groups(cluster.id, nb_cluster, idiff, jdiff, kdiff);
                     }
                     
                     still_boundary = true;
@@ -481,6 +486,64 @@ void ClusterManager::merge_clusters(int cluster1_id, int cluster2_id,
             }),
         ts_list.end()
     );
+}
+
+void ClusterManager::merge_only_merge_groups(int cluster1_id, int cluster2_id, 
+                                             int idiff, int jdiff, int kdiff) {
+    // This function merges merge groups WITHOUT merging the actual clusters
+    // This matches MATLAB behavior where clusters connected by TS (dE >= energy_step)
+    // are kept separate but their merge groups are combined
+    
+    // Find merge groups
+    int group1 = find_merge_group(cluster1_id);
+    int group2 = find_merge_group(cluster2_id);
+    
+    // If clusters not in any merge group, initialize them
+    if (group1 < 0) {
+        init_merge_group(cluster1_id);
+        group1 = find_merge_group(cluster1_id);
+    }
+    if (group2 < 0) {
+        init_merge_group(cluster2_id);
+        group2 = find_merge_group(cluster2_id);
+    }
+    
+    // Check if already in same merge group
+    if (group1 == group2) {
+        // Already in same merge group, nothing to do
+        return;
+    }
+    
+    // Need to update cross vectors for cluster2's merge group if diff is non-zero
+    if (idiff != 0 || jdiff != 0 || kdiff != 0) {
+        // Get all clusters in group2
+        std::vector<int> clusters_to_update = merge_groups_[group2];
+        
+        // Update cross vectors for all points in these clusters
+        for (int cid : clusters_to_update) {
+            for (auto& cluster : clusters_) {
+                if (cluster.id == cid) {
+                    for (auto& pt : cluster.points) {
+                        grid_->cross_i(pt.x, pt.y, pt.z) += idiff;
+                        grid_->cross_j(pt.x, pt.y, pt.z) += jdiff;
+                        grid_->cross_k(pt.x, pt.y, pt.z) += kdiff;
+                        pt.cross_i += idiff;
+                        pt.cross_j += jdiff;
+                        pt.cross_k += kdiff;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    
+    // Merge the merge groups
+    merge_groups_[group1].insert(merge_groups_[group1].end(),
+                                  merge_groups_[group2].begin(),
+                                  merge_groups_[group2].end());
+    
+    // Remove the second merge group
+    merge_groups_.erase(merge_groups_.begin() + group2);
 }
 
 Cluster& ClusterManager::get_cluster(int id) {

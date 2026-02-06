@@ -15,7 +15,8 @@ public:
                  std::shared_ptr<TransitionStateManager> ts_mgr);
     
     // Organize tunnels from cluster and TS information
-    void organize_tunnels();
+    void organize_tunnels(const std::vector<int>& tunnel_cluster = std::vector<int>(),
+                          const std::vector<std::array<int,3>>& tunnel_cluster_dim = std::vector<std::array<int,3>>());
     
     // Generate processes (basis transitions) from tunnels
     void generate_processes(std::vector<Process>& processes);

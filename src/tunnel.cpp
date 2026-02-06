@@ -11,7 +11,8 @@ TunnelManager::TunnelManager(std::shared_ptr<Grid> grid,
     : grid_(grid), cluster_mgr_(cluster_mgr), ts_mgr_(ts_mgr) {
 }
 
-void TunnelManager::organize_tunnels() {
+void TunnelManager::organize_tunnels(const std::vector<int>& tunnel_cluster,
+                                      const std::vector<std::array<int,3>>& tunnel_cluster_dim) {
     // Use merge groups to organize tunnels (matches MATLAB approach)
     // Each merge group becomes one tunnel, with all clusters in group sharing tunnel_id
     

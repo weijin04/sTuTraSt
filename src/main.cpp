@@ -185,7 +185,7 @@ int main(int /* argc */, char** /* argv */) {
     
     // Organize tunnels
     std::cout << "\nOrganizing tunnels..." << std::endl;
-    tunnel_mgr->organize_tunnels();
+    tunnel_mgr->organize_tunnels(tunnel_cluster, tunnel_cluster_dim);
     
     // Generate processes
     std::cout << "\nGenerating processes..." << std::endl;

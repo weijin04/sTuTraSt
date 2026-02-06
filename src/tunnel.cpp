@@ -27,6 +27,11 @@ void TunnelManager::organize_tunnels(const std::vector<int>& tunnel_cluster,
         clusters_with_ts.insert(ts_group.cluster2_id);
     }
     
+    // Also add clusters from tunnel_cluster (single-cluster self-tunnels)
+    for (int cluster_id : tunnel_cluster) {
+        clusters_with_ts.insert(cluster_id);
+    }
+    
     // Create tunnels from merge groups that contain clusters with TS
     int tunnel_id = 1;
     // Track which TSgroups have been processed to avoid duplicates

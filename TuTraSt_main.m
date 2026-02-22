@@ -504,7 +504,11 @@ clear all
                 fclose(fid_D);
             end
         end
-        t_kmc=cputime-tstart_kmc;
+        if run_kmc==1
+            t_kmc=cputime-tstart_kmc;
+        else
+            t_kmc=0;
+        end
         ttot=cputime-tstart;
         disp(['Time kmc : ',num2str(t_kmc/60)]);
         fprintf(tunnel_file,'%s %d %s %f\n','Time kmc: ',t_kmc/60);
@@ -540,5 +544,4 @@ end
     fclose(tunnel_file);
 %save('E_matrix.mat','E_matrix', '-v7.3')
 %save('list.mat','list', '-v7.3')
-
 

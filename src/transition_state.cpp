@@ -78,9 +78,12 @@ void TransitionStateManager::flood_fill_ts(const std::vector<TSPoint>& ts_list,
     group.cluster1_id = ts_list[start_idx].cluster1_id;
     group.cluster2_id = ts_list[start_idx].cluster2_id;
     group.min_energy = ts_list[start_idx].energy;
-    group.min_coord = Coord3D(ts_list[start_idx].x, 
-                             ts_list[start_idx].y, 
+    group.min_coord = Coord3D(ts_list[start_idx].x,
+                             ts_list[start_idx].y,
                              ts_list[start_idx].z);
+    group.cross_diff_i = ts_list[start_idx].cross_diff_i;
+    group.cross_diff_j = ts_list[start_idx].cross_diff_j;
+    group.cross_diff_k = ts_list[start_idx].cross_diff_k;
     
     while (!queue.empty()) {
         int curr_idx = queue.front();
@@ -129,34 +132,4 @@ void TransitionStateManager::flood_fill_ts(const std::vector<TSPoint>& ts_list,
             }
         }
     }
-}
-
-CrossVector TransitionStateManager::get_ts_cross_vector(const Coord3D& min1, 
-                                                        const Coord3D& min2) const {
-    CrossVector cv;
-    
-    int dx = min2.x - min1.x;
-    int dy = min2.y - min1.y;
-    int dz = min2.z - min1.z;
-    
-    // Determine shortest path considering periodic boundaries
-    if (std::abs(dx) > grid_->nx() / 2) {
-        cv.i = (dx > 0) ? -1 : 1;
-    } else {
-        cv.i = 0;
-    }
-    
-    if (std::abs(dy) > grid_->ny() / 2) {
-        cv.j = (dy > 0) ? -1 : 1;
-    } else {
-        cv.j = 0;
-    }
-    
-    if (std::abs(dz) > grid_->nz() / 2) {
-        cv.k = (dz > 0) ? -1 : 1;
-    } else {
-        cv.k = 0;
-    }
-    
-    return cv;
 }

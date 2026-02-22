@@ -16,7 +16,10 @@ double CubeParser::convert_energy(double energy, int from_unit) {
         case 4: // eV
             return energy * 96.4853;
         case 5: // Hartree
-            return energy * 2625.5;
+            // Keep MATLAB compatibility (legacy factor used in original script).
+            return energy * 627.5096;
+        case 6: // Kelvin (K)
+            return energy * R_GAS / 1000.0;  // 0.0083144621 kJ/(mol*K)
         default:
             std::cerr << "Warning: Unknown energy unit, assuming kJ/mol" << std::endl;
             return energy;
@@ -62,45 +65,53 @@ bool CubeParser::parse(const std::string& filename, int energy_unit,
     ngrid[1] = ny;
     ngrid[2] = nz;
     
-    // Calculate grid sizes (voxel spacing in Angstroms, convert from Bohr)
-    // MATLAB: a_grid = sqrt(vx^2 + vy^2 + vz^2) * 0.529177249
-    // For axis-aligned grids, this simplifies to abs(v) * BOHR_TO_ANGSTROM
-    const double BOHR_TO_ANGSTROM = 0.529177;
-    grid_size[0] = std::abs(vx1) * BOHR_TO_ANGSTROM;  // Voxel spacing, NOT box size
-    grid_size[1] = std::abs(vy2) * BOHR_TO_ANGSTROM;
-    grid_size[2] = std::abs(vz3) * BOHR_TO_ANGSTROM;
+    // Match MATLAB exactly: norm of voxel vector components in Bohr -> Angstrom.
+    const double BOHR_TO_ANGSTROM = 0.529177249;
+    grid_size[0] = std::sqrt(vx1 * vx1 + vy1 * vy1 + vz1 * vz1) * BOHR_TO_ANGSTROM;
+    grid_size[1] = std::sqrt(vx2 * vx2 + vy2 * vy2 + vz2 * vz2) * BOHR_TO_ANGSTROM;
+    grid_size[2] = std::sqrt(vx3 * vx3 + vy3 * vy3 + vz3 * vz3) * BOHR_TO_ANGSTROM;
     
     // Skip atom lines
     for (int i = 0; i < std::abs(n_atoms); i++) {
         std::getline(file, line);
     }
     
-    // Read potential data (variable values per line)
-    int total_points = nx * ny * nz;
-    
-    pot_data.clear();
-    pot_data.resize(1);  // Start with one row
-    
+    // Read raw cube values (linear file order)
+    const int total_points = nx * ny * nz;
+    std::vector<double> raw_values;
+    raw_values.reserve(total_points);
+
     double value;
-    int count = 0;
-    while (file >> value && count < total_points) {
-        // Convert energy units
-        double converted = convert_energy(value, energy_unit);
-        pot_data[0].push_back(converted);
-        count++;
+    while (file >> value && static_cast<int>(raw_values.size()) < total_points) {
+        raw_values.push_back(convert_energy(value, energy_unit));
     }
-    
-    // Reshape into rows of 6 for compatibility with grid.cpp
-    int n_rows = (total_points + 5) / 6;
-    std::vector<std::vector<double>> reshaped_data;
-    reshaped_data.resize(n_rows);
-    
+
+    if (static_cast<int>(raw_values.size()) < total_points) {
+        std::cerr << "Error: insufficient cube data values, got " << raw_values.size()
+                  << " expected " << total_points << std::endl;
+        return false;
+    }
+
+    // Match MATLAB cube2xsfdat.m exactly:
+    // 1) data_mat(a,b,c) filled with raw values in (a,b,c) loop order (c fastest)
+    // 2) pot_data emitted in (c,b,a) order (a fastest)
+    std::vector<double> matlab_ordered;
+    matlab_ordered.reserve(total_points);
+    for (int z = 0; z < nz; z++) {
+        for (int y = 0; y < ny; y++) {
+            for (int x = 0; x < nx; x++) {
+                const int line = z + nz * (y + ny * x);
+                matlab_ordered.push_back(raw_values[line]);
+            }
+        }
+    }
+
+    // Reshape into rows of 6 for compatibility with Grid::initialize
+    const int n_rows = (total_points + 5) / 6;
+    pot_data.assign(n_rows, {});
     for (int i = 0; i < total_points; i++) {
-        int row = i / 6;
-        reshaped_data[row].push_back(pot_data[0][i]);
+        pot_data[i / 6].push_back(matlab_ordered[i]);
     }
-    
-    pot_data = reshaped_data;
     
     file.close();
     

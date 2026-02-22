@@ -99,7 +99,7 @@ int main(int /* argc */, char** /* argv */) {
         // Matches Octave: if level>level_min
         if (level > grid->min_level()) {
             cluster_mgr->grow_clusters(level, ts_list, tunnel_list, tunnel_cluster, 
-                                       tunnel_cluster_dim, params.energy_step);
+                                       tunnel_cluster_dim, params.energy_step, &ts_list_all);
         }
         
         // Initiate new clusters (for all levels)
@@ -177,20 +177,32 @@ int main(int /* argc */, char** /* argv */) {
     // Compact clusters: filter out merged clusters (id==0) and renumber sequentially
     // This matches MATLAB's cluster filtering step
     std::map<int, int> cluster_id_mapping = cluster_mgr->compact_clusters(ts_list_all);
+
+    // Update tunnel_cluster IDs to match compacted cluster IDs
+    for (auto& tc : tunnel_cluster) {
+        if (cluster_id_mapping.count(tc)) {
+            tc = cluster_id_mapping[tc];
+        }
+    }
     
-    // Organize transition states
-    std::cout << "\nOrganizing transition states..." << std::endl;
-    ts_mgr->organize_ts_groups(ts_list_all);
-    std::cout << "TS groups: " << ts_mgr->ts_groups().size() << std::endl;
-    
-    // Organize tunnels
-    std::cout << "\nOrganizing tunnels..." << std::endl;
-    tunnel_mgr->organize_tunnels(tunnel_cluster, tunnel_cluster_dim);
-    
-    // Generate processes
-    std::cout << "\nGenerating processes..." << std::endl;
     std::vector<Process> processes;
-    tunnel_mgr->generate_processes(processes);
+    // MATLAB compatibility: only build TS/tunnel/process structures if breakthrough exists.
+    if (!tunnel_directions.empty()) {
+        // Organize transition states
+        std::cout << "\nOrganizing transition states..." << std::endl;
+        ts_mgr->organize_ts_groups(ts_list_all);
+        std::cout << "TS groups: " << ts_mgr->ts_groups().size() << std::endl;
+        
+        // Organize tunnels
+        std::cout << "\nOrganizing tunnels..." << std::endl;
+        tunnel_mgr->organize_tunnels(tunnel_cluster, tunnel_cluster_dim);
+        
+        // Generate processes
+        std::cout << "\nGenerating processes..." << std::endl;
+        tunnel_mgr->generate_processes(processes);
+    } else {
+        std::cout << "\nNo breakthrough directions found; skipping TS/tunnel/process generation." << std::endl;
+    }
     
     // Calculate rates for each temperature
     std::cout << "\n============================================" << std::endl;
@@ -199,11 +211,10 @@ int main(int /* argc */, char** /* argv */) {
     
     auto output_writer = std::make_shared<OutputWriter>(cluster_mgr, tunnel_mgr, ts_mgr, params.energy_step);
     
-    // Calculate average grid size (in Angstroms)
-    // MATLAB uses mean(grid_size) which is the average box dimension, NOT voxel size
-    // Previous error: was using voxel size (grid_size/ngrid) causing 68x error in rates
+    // Calculate average voxel size (in Angstroms)
+    // grid_size is the voxel spacing; ave_grid_size = mean(grid_size) matches MATLAB
     double ave_grid_size = (grid_size[0] + grid_size[1] + grid_size[2]) / 3.0;
-    std::cout << "  Average grid size (box): " << ave_grid_size << " Angstroms" << std::endl;
+    std::cout << "  Average grid size (voxel): " << ave_grid_size << " Angstroms" << std::endl;
     
     for (double T : params.temperatures) {
         std::cout << "\nTemperature: " << T << " K" << std::endl;
@@ -217,14 +228,14 @@ int main(int /* argc */, char** /* argv */) {
         // Following MATLAB: k = prefactor * Bsum_TS / (Bsum_cluster * ave_grid_size * 1e-10)
         for (auto& proc : processes) {
             const auto& ts_groups = ts_mgr->ts_groups();
-            if (proc.tsgroup_id >= static_cast<int>(ts_groups.size())) {
+            if (proc.tsgroup_id < 0 || proc.tsgroup_id >= static_cast<int>(ts_groups.size())) {
                 continue;
             }
-            
+
             const auto& ts_group = ts_groups[proc.tsgroup_id];
             // Use from_cluster_orig not from_basis (which gets modified to basis index)
             const Cluster& from_cluster = cluster_mgr->get_cluster(proc.from_cluster_orig);
-            
+
             // Calculate Boltzmann sum for TS group
             // Using factor of 1000 to convert kJ/mol to J/mol for exponential
             double Bsum_TS = 0.0;
@@ -232,21 +243,22 @@ int main(int /* argc */, char** /* argv */) {
                 double dE_TS = ts_pt.energy - from_cluster.min_energy;
                 Bsum_TS += std::exp(-1000.0 * beta * dE_TS);
             }
-            
+
             // Calculate Boltzmann sum for cluster states
+            // MATLAB removes TS-marked points (info(:,6)==1) from finC before partition function
+            // Then adds Bsum_TS back. ts_flag is per-cluster-point, matching MATLAB's info(:,6).
             double Bsum_cluster = 0.0;
             for (const auto& pt : from_cluster.points) {
+                if (pt.ts_flag != 0) continue;
                 double E_pt = grid->energy_at(pt.x, pt.y, pt.z);
                 double dE_cluster = E_pt - from_cluster.min_energy;
                 Bsum_cluster += std::exp(-1000.0 * beta * dE_cluster);
             }
-            
+
             // Add TS contribution to cluster partition function
             Bsum_cluster += Bsum_TS;
-            
+
             // Calculate rate constant
-            // prefactor has units of Hz (1/s)
-            // Division by (ave_grid_size * 1e-10) converts to proper rate units
             proc.rate = prefactor * Bsum_TS / (Bsum_cluster * ave_grid_size * 1e-10);
         }
         
@@ -272,12 +284,22 @@ int main(int /* argc */, char** /* argv */) {
             proc.to_basis = cluster_to_basis[proc.to_cluster_orig];
         }
         
-        // Write outputs for this temperature
+        // Write outputs for this temperature (MATLAB writes processes only when non-empty).
         std::string T_str = std::to_string(static_cast<int>(T));
-        output_writer->write_processes("processes_" + T_str + ".dat", processes);
+        if (!processes.empty()) {
+            output_writer->write_processes("processes_" + T_str + ".dat", processes);
+        }
         
-        // Run kMC if requested
-        if (params.run_kmc && !processes.empty()) {
+        // Match MATLAB fallback: if no processes, emit zero diffusion for each temperature.
+        if (processes.empty()) {
+            std::ofstream D_file("D_ave_" + T_str + ".dat");
+            D_file << std::scientific;
+            D_file << 0.0 << " " << 0.0 << " "
+                   << 0.0 << " " << 0.0 << " "
+                   << 0.0 << " " << 0.0 << std::endl;
+            D_file.close();
+        } else if (params.run_kmc) {
+            // Run kMC if requested
             std::cout << "\nRunning kMC simulations..." << std::endl;
             
             // Extract basis sites from clusters involved in processes (MATLAB-compatible)
@@ -301,8 +323,8 @@ int main(int /* argc */, char** /* argv */) {
                 }
             }
             
-            // Create KMC simulator with grid info for proper unit conversions
-            KMC kmc(basis_sites, processes, T, ngrid, grid_size);
+            // Create KMC simulator with grid info and BT for proper fitting range
+            KMC kmc(basis_sites, processes, T, ngrid, grid_size, BT);
             
             // Run simulations
             auto D_ave = kmc.run_multiple(params.n_runs, params.n_steps, 
@@ -324,9 +346,11 @@ int main(int /* argc */, char** /* argv */) {
     std::cout << "Writing output files..." << std::endl;
     std::cout << "============================================\n" << std::endl;
     
-    output_writer->write_basis("basis.dat", processes);
+    if (!processes.empty()) {
+        output_writer->write_basis("basis.dat", processes);
+        output_writer->write_ts_data("TS_data.out");
+    }
     output_writer->write_tunnel_info("tunnel_info.out");
-    output_writer->write_ts_data("TS_data.out");
     
     // Write breakthrough energies
     std::cout << "\nBreakthrough energies:" << std::endl;
@@ -335,7 +359,7 @@ int main(int /* argc */, char** /* argv */) {
     std::cout << "  C direction: " << BT[2] << " kJ/mol" << std::endl;
     output_writer->write_breakthrough("BT.dat", BT);
     
-    if (!params.temperatures.empty()) {
+    if (!params.temperatures.empty() && !processes.empty()) {
         std::string T_str = std::to_string(static_cast<int>(params.temperatures[0]));
         output_writer->write_energy_volume("Evol_" + T_str + ".dat", E_volume);
     }

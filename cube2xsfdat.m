@@ -12,6 +12,8 @@ elseif E_unit==4 %eV
     conv2kJmol=96.4853;
 elseif E_unit==5 %Hartree
     conv2kJmol=627.5096;
+elseif E_unit==6 %Kelvin (K)
+    conv2kJmol=0.0083144621;
 end
 grid=[cube.data(2,1) cube.data(3,1) cube.data(4,1)];
 a_grid=sqrt(cube.data(2,2)^2+cube.data(2,3)^2+cube.data(2,4)^2)*0.529177249;

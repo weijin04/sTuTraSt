@@ -15,6 +15,7 @@ Grid::Grid(const std::array<int, 3>& dimensions)
     minID_L_matrix_.resize(total_size, 0);
     minID_C_matrix_.resize(total_size, 0);
     TS_matrix_.resize(total_size, 0);
+    TS_ever_matrix_.resize(total_size, 0);
     cross_i_matrix_.resize(total_size, 0);
     cross_j_matrix_.resize(total_size, 0);
     cross_k_matrix_.resize(total_size, 0);
@@ -22,9 +23,9 @@ Grid::Grid(const std::array<int, 3>& dimensions)
 
 void Grid::initialize(const std::vector<std::vector<double>>& pot_data,
                      double energy_step, double energy_cutoff) {
-    // Convert pot_data to E_matrix
-    // Cube file stores data in x-fastest order: for z, for y, for x
-    // We read sequentially and map to E_matrix(x,y,z)
+    // Convert pot_data to E_matrix.
+    // pot_data is already reordered in CubeParser to match MATLAB cube2xsfdat.m output,
+    // and TuTraSt_main.m consumes it with z->y->x loops.
     int ind = 0;
     for (int z = 0; z < dims_[2]; z++) {
         for (int y = 0; y < dims_[1]; y++) {
@@ -43,8 +44,9 @@ void Grid::initialize(const std::vector<std::vector<double>>& pot_data,
                 
                 double energy = pot_data[row_ind][col_ind];
                 
-                // Replace extreme values
-                if (std::isinf(energy) || energy > 10 * energy_cutoff) {
+                // Match MATLAB behavior: only sanitize inf here.
+                // High-energy finite values are handled by the later "replace max value" step.
+                if (std::isinf(energy)) {
                     energy = 10 * energy_cutoff;
                 }
                 
@@ -150,6 +152,14 @@ int& Grid::ts_matrix(int x, int y, int z) {
 
 int Grid::ts_matrix(int x, int y, int z) const {
     return TS_matrix_[index(x, y, z)];
+}
+
+int& Grid::ts_ever(int x, int y, int z) {
+    return TS_ever_matrix_[index(x, y, z)];
+}
+
+int Grid::ts_ever(int x, int y, int z) const {
+    return TS_ever_matrix_[index(x, y, z)];
 }
 
 int& Grid::cross_i(int x, int y, int z) {

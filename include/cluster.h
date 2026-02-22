@@ -19,7 +19,8 @@ public:
                       std::vector<std::array<int,3>>& tunnel_list,
                       std::vector<int>& tunnel_cluster,
                       std::vector<std::array<int,3>>& tunnel_cluster_dim,
-                      double energy_step);
+                      double energy_step,
+                      std::vector<TSPoint>* ts_list_all = nullptr);
     
     // Get cluster by ID
     Cluster& get_cluster(int id);
@@ -63,7 +64,8 @@ private:
     
     // Merge two clusters (full implementation)
     void merge_clusters(int cluster1_id, int cluster2_id, int idiff, int jdiff, int kdiff, 
-                       std::vector<TSPoint>& ts_list);
+                       std::vector<TSPoint>& ts_list,
+                       std::vector<TSPoint>* ts_list_all = nullptr);
     
     // Merge merge groups only (when creating TS between clusters)
     // This is needed to match MATLAB behavior where clusters connected by TS

@@ -38,9 +38,10 @@ struct ClusterPoint {
     int x, y, z;          // Grid coordinates
     int level;            // Energy level
     int boundary;         // 1 if boundary point, 0 otherwise
+    int ts_flag;          // MATLAB info(:,6): 1 if point is a TS, persists after merge
     int cross_i, cross_j, cross_k;  // Periodic image offsets
-    
-    ClusterPoint() : x(0), y(0), z(0), level(0), boundary(0), 
+
+    ClusterPoint() : x(0), y(0), z(0), level(0), boundary(0), ts_flag(0),
                      cross_i(0), cross_j(0), cross_k(0) {}
 };
 
@@ -62,10 +63,12 @@ struct TSPoint {
     int cluster1_id;
     int cluster2_id;
     int cross_i, cross_j, cross_k;
-    
+    int cross_diff_i, cross_diff_j, cross_diff_k;  // PBC cross difference between the two clusters
+
     TSPoint() : x(0), y(0), z(0), level(0), energy(0.0),
                 cluster1_id(0), cluster2_id(0),
-                cross_i(0), cross_j(0), cross_k(0) {}
+                cross_i(0), cross_j(0), cross_k(0),
+                cross_diff_i(0), cross_diff_j(0), cross_diff_k(0) {}
 };
 
 // TS Group (surface between two clusters)
@@ -75,8 +78,10 @@ struct TSGroup {
     int cluster2_id;
     double min_energy;
     Coord3D min_coord;
-    
-    TSGroup() : cluster1_id(0), cluster2_id(0), min_energy(0.0) {}
+    int cross_diff_i, cross_diff_j, cross_diff_k;  // PBC cross difference
+
+    TSGroup() : cluster1_id(0), cluster2_id(0), min_energy(0.0),
+                cross_diff_i(0), cross_diff_j(0), cross_diff_k(0) {}
 };
 
 // Tunnel structure
@@ -86,8 +91,10 @@ struct Tunnel {
     std::vector<int> cluster_ids;
     std::vector<int> tsgroup_ids;
     double min_energy;
-    
-    Tunnel() : id(0), min_energy(0.0) {
+    bool is_self_tunnel = false;
+    std::vector<std::pair<int, std::array<int,3>>> self_cross_dirs;  // (cluster_id, cross_dir) for self-tunnels
+
+    Tunnel() : id(0), min_energy(0.0), is_self_tunnel(false) {
         dimensions = {0, 0, 0};
     }
 };
@@ -110,7 +117,7 @@ struct Process {
 
 // Input parameters
 struct InputParams {
-    int energy_unit;        // 1=kJ/mol, 2=kcal/mol, 3=Ry, 4=eV, 5=Hartree
+    int energy_unit;        // 1=kJ/mol, 2=kcal/mol, 3=Ry, 4=eV, 5=Hartree, 6=K
     int n_temps;
     std::vector<double> temperatures;
     bool run_kmc;

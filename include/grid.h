@@ -30,6 +30,9 @@ public:
     
     int& ts_matrix(int x, int y, int z);
     int ts_matrix(int x, int y, int z) const;
+
+    int& ts_ever(int x, int y, int z);
+    int ts_ever(int x, int y, int z) const;
     
     int& cross_i(int x, int y, int z);
     int cross_i(int x, int y, int z) const;
@@ -55,7 +58,8 @@ private:
     std::vector<int> level_matrix_;       // Level at each point
     std::vector<int> minID_L_matrix_;     // Level ID
     std::vector<int> minID_C_matrix_;     // Cluster ID
-    std::vector<int> TS_matrix_;          // TS marker
+    std::vector<int> TS_matrix_;          // TS marker (can be cleared by merge)
+    std::vector<int> TS_ever_matrix_;      // Sticky TS marker (never cleared, matches MATLAB info(:,6))
     std::vector<int> cross_i_matrix_;     // Cross vectors
     std::vector<int> cross_j_matrix_;
     std::vector<int> cross_k_matrix_;

@@ -1,0 +1,6 @@
+dir,probe,sim_temp,case_limit,case_offset,grid_spacing,grid_cutoff,energy_step,energy_cutoff,max_jobs,grid_njobs,summary_rows,ok,fail
+batch_000_offset000_limit12_20260222_143148,Xe,1000,12,0,0.2,12.8,1.5,20,3,4,12,12,0
+batch_001_offset012_limit12_20260222_150053,Xe,1000,12,12,0.2,12.8,1.5,20,3,4,12,12,0
+batch_002_offset024_limit12_20260222_155803,Xe,1000,12,24,0.2,12.8,1.5,20,3,4,12,12,0
+batch_003_offset036_limit12_20260222_160307,Xe,1000,12,36,0.2,12.8,1.5,20,3,4,12,12,0
+batch_004_offset048_limit12_20260222_161228,Xe,1000,12,48,0.2,12.8,1.5,20,3,4,12,12,0

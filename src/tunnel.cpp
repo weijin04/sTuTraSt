@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <iostream>
 #include <limits>
+#include <cstdlib>
 
 TunnelManager::TunnelManager(std::shared_ptr<Grid> grid,
                             std::shared_ptr<ClusterManager> cluster_mgr,
@@ -216,12 +217,25 @@ Coord3D TunnelManager::get_cluster_min_coord(const Cluster& cluster) {
 
     int min_idx = 0;
     double min_e = std::numeric_limits<double>::max();
+    bool found_non_ts = false;
     for (size_t i = 0; i < cluster.points.size(); i++) {
         const auto& pt = cluster.points[i];
+        if (pt.ts_flag != 0) continue;  // Match MATLAB finC.min (TS points excluded)
         double e = grid_->energy_at(pt.x, pt.y, pt.z);
         if (e < min_e) {
             min_e = e;
             min_idx = i;
+            found_non_ts = true;
+        }
+    }
+    if (!found_non_ts) {
+        for (size_t i = 0; i < cluster.points.size(); i++) {
+            const auto& pt = cluster.points[i];
+            double e = grid_->energy_at(pt.x, pt.y, pt.z);
+            if (e < min_e) {
+                min_e = e;
+                min_idx = i;
+            }
         }
     }
 
@@ -380,7 +394,13 @@ CrossVector TunnelManager::calculate_cross_vector_path(const Coord3D& start,
     }
 
     if (!self_tunnel) {
-        return calculate_cross_vector_simple(start, end);
+        if (const char* env = std::getenv("TUTRAST_TRACE_PROCESS_FALLBACK"); env && std::string(env) == "1") {
+            std::cout << "[TRACE_PROCESS_FALLBACK] start=(" << (start.x + 1) << "," << (start.y + 1) << "," << (start.z + 1)
+                      << ") end=(" << (end.x + 1) << "," << (end.y + 1) << "," << (end.z + 1)
+                      << ") coord_list_n=" << coord_list.size() << std::endl;
+        }
+        // MATLAB get_TS_cross_vector leaves cross_vector at [0 0 0] when no path is found.
+        return CrossVector(0, 0, 0);
     }
     return CrossVector(0, 0, 0);
 }

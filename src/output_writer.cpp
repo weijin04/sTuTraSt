@@ -40,15 +40,28 @@ void OutputWriter::write_basis(const std::string& filename, const std::vector<Pr
         const Cluster& cluster = cluster_mgr_->get_cluster(cluster_id);
         if (!cluster.points.empty()) {
             // Find the actual minimum energy point in the cluster (not just first point)
-            // MATLAB uses list.finC(iC).min(2:4) which is the minimum energy point coordinates
+            // MATLAB uses list.finC(iC).min(2:4), where finC excludes TS-flagged points.
             int min_idx = 0;
             double min_e = std::numeric_limits<double>::max();
+            bool found_non_ts = false;
             for (size_t i = 0; i < cluster.points.size(); i++) {
                 const auto& pt = cluster.points[i];
+                if (pt.ts_flag != 0) continue;
                 double e = cluster_mgr_->grid()->energy_at(pt.x, pt.y, pt.z);
                 if (e < min_e) {
                     min_e = e;
                     min_idx = i;
+                    found_non_ts = true;
+                }
+            }
+            if (!found_non_ts) {
+                for (size_t i = 0; i < cluster.points.size(); i++) {
+                    const auto& pt = cluster.points[i];
+                    double e = cluster_mgr_->grid()->energy_at(pt.x, pt.y, pt.z);
+                    if (e < min_e) {
+                        min_e = e;
+                        min_idx = i;
+                    }
                 }
             }
             const auto& min_pt = cluster.points[min_idx];

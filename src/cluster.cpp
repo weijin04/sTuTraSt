@@ -4,6 +4,8 @@
 #include <iostream>
 #include <algorithm>
 #include <map>
+#include <cstdlib>
+#include <string>
 
 ClusterManager::ClusterManager(std::shared_ptr<Grid> grid)
     : grid_(grid), next_cluster_id_(1) {
@@ -173,14 +175,53 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                                    std::vector<std::array<int,3>>& tunnel_cluster_dim,
                                    double energy_step,
                                    std::vector<TSPoint>* ts_list_all) {
-    // Iterate until no cluster grows (matches MATLAB while loop)
-    bool any_growth = true;
-    while (any_growth) {
-        any_growth = false;
+    bool trace_local = false;
+    if (const char* env = std::getenv("TUTRAST_TRACE_QUPX21"); env && std::string(env) == "1") {
+        trace_local = true;
+    }
+    bool skip_temp_samecluster_ts = false;
+    if (const char* env = std::getenv("TUTRAST_SKIP_TEMP_SAMECLUSTER_TS"); env && std::string(env) == "1") {
+        skip_temp_samecluster_ts = true;
+    }
+    auto in_trace_box = [&](int x, int y, int z) {
+        // MATLAB 1-based local mismatch patch around level 21, converted to C++ 0-based.
+        bool box1 = (x >= 27 && x <= 33 && y >= 9 && y <= 12 && z >= 68 && z <= 72);
+        bool box2 = (x >= 120 && x <= 123 && y >= 13 && y <= 15 && z >= 84 && z <= 88);
+        return box1 || box2;
+    };
+    auto trace_pair = [&](const char* tag, const ClusterPoint& pt, const Coord3D& nb,
+                          double pt_energy, double nb_energy, double dE,
+                          int cid1, int cid2) {
+        if (!trace_local || level != 21) return;
+        if (!(in_trace_box(pt.x, pt.y, pt.z) || in_trace_box(nb.x, nb.y, nb.z))) return;
+        std::cout << "[TRACE21] " << tag
+                  << " host=(" << (pt.x + 1) << "," << (pt.y + 1) << "," << (pt.z + 1) << ")"
+                  << " nb=(" << (nb.x + 1) << "," << (nb.y + 1) << "," << (nb.z + 1) << ")"
+                  << " cid=(" << cid1 << "," << cid2 << ")"
+                  << " E=(" << pt_energy << "," << nb_energy << ")"
+                  << " dE=" << dE << std::endl;
+    };
+    // MATLAB uses a per-cluster `filled` flag: clusters that fail to grow in one pass
+    // are not revisited later in the same level.
+    std::vector<int> filled(clusters_.size(), 0);
+    for (size_t ci = 0; ci < clusters_.size(); ++ci) {
+        if (clusters_[ci].id == 0) filled[ci] = 1;
+    }
+    while (true) {
+        bool any_growth = false;
+        bool all_filled = true;
         
         // Grow each existing cluster
-        for (auto& cluster : clusters_) {
-            if (cluster.id == 0) continue;  // Skip removed clusters
+        for (size_t ci = 0; ci < clusters_.size(); ++ci) {
+            auto& cluster = clusters_[ci];
+            if (cluster.id == 0) {
+                filled[ci] = 1;
+                continue;  // Skip removed clusters
+            }
+            if (filled[ci] != 0) {
+                continue;
+            }
+            all_filled = false;
             
             std::vector<ClusterPoint> new_points;
 
@@ -292,21 +333,43 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                             grid_->ts_matrix(pt.x, pt.y, pt.z) == 0) {
                             double nb_energy = grid_->energy_at(nb.x, nb.y, nb.z);
                             double pt_energy = grid_->energy_at(pt.x, pt.y, pt.z);
+                            trace_pair("same-cluster-ts", pt, nb, pt_energy, nb_energy, 0.0,
+                                       cluster.id, cluster.id);
 
                             int ts_x, ts_y, ts_z;
+                            bool ts_is_temp_neighbor = false;
                             if (nb_energy >= pt_energy) {
                                 ts_x = nb.x; ts_y = nb.y; ts_z = nb.z;
                                 // MATLAB: find neighbor row in C_connect (same cluster), set info(line,6)=1
+                                bool marked = false;
                                 for (auto& cp : cluster.points) {
                                     if (cp.x == ts_x && cp.y == ts_y && cp.z == ts_z) {
                                         cp.ts_flag = 1;
+                                        marked = true;
                                         break;
+                                    }
+                                }
+                                // The neighbor may still be in this iteration's temp list (new_points),
+                                // which MATLAB stores in temp.info and can also mark as TS before append.
+                                if (!marked) {
+                                    for (auto& cp : new_points) {
+                                        if (cp.x == ts_x && cp.y == ts_y && cp.z == ts_z) {
+                                            cp.ts_flag = 1;
+                                            ts_is_temp_neighbor = true;
+                                            break;
+                                        }
                                     }
                                 }
                             } else {
                                 ts_x = pt.x; ts_y = pt.y; ts_z = pt.z;
                                 // MATLAB: set info(index_list,6)=1 on host point
                                 cluster.points[pi].ts_flag = 1;
+                            }
+
+                            // Experimental/debug switch: defer TS creation if the chosen TS point is still in
+                            // this iteration's temp list (MATLAB temp.info timing may differ here).
+                            if (skip_temp_samecluster_ts && ts_is_temp_neighbor) {
+                                continue;
                             }
 
                             TSPoint ts;
@@ -358,12 +421,15 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
 
                     if (dE < energy_step) {
                         // Merge clusters - barrier too small
+                        trace_pair("merge", pt, nb, pt_energy, nb_energy, dE, cluster.id, nb_cluster);
                         merge_clusters(cluster.id, nb_cluster, idiff, jdiff, kdiff, ts_list, ts_list_all);
                     } else {
                         // Create transition state
                         // MATLAB line 184/202: both host AND neighbor must be unmarked
                         if (grid_->ts_matrix(nb.x, nb.y, nb.z) == 0 &&
                             grid_->ts_matrix(pt.x, pt.y, pt.z) == 0) {
+                            trace_pair("diff-cluster-ts", pt, nb, pt_energy, nb_energy, dE,
+                                       cluster.id, nb_cluster);
                             // Choose higher energy point as TS
                             int ts_x, ts_y, ts_z;
                             if (nb_energy >= pt_energy) {
@@ -429,9 +495,22 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
             any_growth = true;  // Mark that growth happened
             cluster.points.insert(cluster.points.end(), 
                                  new_points.begin(), new_points.end());
+        } else {
+            filled[ci] = 1;
         }
     }
-    } // End while loop
+        for (size_t ci = 0; ci < clusters_.size(); ++ci) {
+            if (clusters_[ci].id == 0) filled[ci] = 1;
+            if (filled[ci] == 0) all_filled = false;
+        }
+        if (all_filled) {
+            break;
+        }
+        if (!any_growth) {
+            // Safety break; should not happen if all_filled tracking is correct.
+            break;
+        }
+    } // End MATLAB-style filled loop
 }
 
 void ClusterManager::init_merge_group(int cluster_id) {

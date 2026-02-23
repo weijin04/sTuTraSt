@@ -17,6 +17,8 @@
 #include <algorithm>
 #include <set>
 #include <map>
+#include <cstdlib>
+#include <iomanip>
 
 int main(int /* argc */, char** /* argv */) {
     std::cout << "============================================" << std::endl;
@@ -60,6 +62,61 @@ int main(int /* argc */, char** /* argv */) {
     auto cluster_mgr = std::make_shared<ClusterManager>(grid);
     auto ts_mgr = std::make_shared<TransitionStateManager>(grid);
     auto tunnel_mgr = std::make_shared<TunnelManager>(grid, cluster_mgr, ts_mgr);
+
+    auto maybe_dump_ts_list = [](const std::string& filename, const std::vector<TSPoint>& ts_list) {
+        const char* flag = std::getenv("TUTRAST_DEBUG_DUMP_TS_LIST");
+        if (!flag || std::string(flag) != "1") return;
+        std::ofstream f(filename);
+        if (!f.is_open()) return;
+        f << std::scientific << std::setprecision(15);
+        // MATLAB TS_list_all (pre-organize, pre-reindex) is 10 columns:
+        // x y z level energy cluster1 cluster2 crossi crossj crossk
+        // Write MATLAB-style 1-based coordinates to compare directly against restart2.mat.
+        for (const auto& ts : ts_list) {
+            f << (ts.x + 1) << " "
+              << (ts.y + 1) << " "
+              << (ts.z + 1) << " "
+              << ts.level << " "
+              << ts.energy << " "
+              << ts.cluster1_id << " "
+              << ts.cluster2_id << " "
+              << ts.cross_i << " "
+              << ts.cross_j << " "
+              << ts.cross_k << "\n";
+        }
+    };
+    auto maybe_dump_minid_c = [&]() {
+        const char* flag = std::getenv("TUTRAST_DEBUG_DUMP_MINIDC");
+        if (!flag || std::string(flag) != "1") return;
+        std::ofstream fL("debug_minID_L_precompact_flat.txt");
+        if (fL.is_open()) {
+            for (int z = 0; z < grid->nz(); z++) {
+                for (int y = 0; y < grid->ny(); y++) {
+                    for (int x = 0; x < grid->nx(); x++) {
+                        fL << grid->minID_L(x, y, z) << "\n";
+                    }
+                }
+            }
+        }
+        std::ofstream f("debug_minID_C_precompact_flat.txt");
+        if (!f.is_open()) return;
+        for (int z = 0; z < grid->nz(); z++) {
+            for (int y = 0; y < grid->ny(); y++) {
+                for (int x = 0; x < grid->nx(); x++) {
+                    f << grid->minID_C(x, y, z) << "\n";
+                }
+            }
+        }
+        std::ofstream fl("debug_level_matrix_flat.txt");
+        if (!fl.is_open()) return;
+        for (int z = 0; z < grid->nz(); z++) {
+            for (int y = 0; y < grid->ny(); y++) {
+                for (int x = 0; x < grid->nx(); x++) {
+                    fl << grid->level_at(x, y, z) << "\n";
+                }
+            }
+        }
+    };
     
     // Main algorithm: Cluster growth and TS detection
     std::cout << "\n============================================" << std::endl;
@@ -173,10 +230,13 @@ int main(int /* argc */, char** /* argv */) {
     
     std::cout << "Total clusters: " << cluster_mgr->num_clusters() << std::endl;
     std::cout << "Total TS points: " << ts_list_all.size() << std::endl;
+    maybe_dump_ts_list("debug_ts_list_all_precompact.dat", ts_list_all);
+    maybe_dump_minid_c();
     
     // Compact clusters: filter out merged clusters (id==0) and renumber sequentially
     // This matches MATLAB's cluster filtering step
     std::map<int, int> cluster_id_mapping = cluster_mgr->compact_clusters(ts_list_all);
+    maybe_dump_ts_list("debug_ts_list_all_postcompact.dat", ts_list_all);
 
     // Update tunnel_cluster IDs to match compacted cluster IDs
     for (auto& tc : tunnel_cluster) {

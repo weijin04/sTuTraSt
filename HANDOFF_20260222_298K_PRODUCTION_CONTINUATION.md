@@ -527,3 +527,156 @@ Temporary local `TUTRAST_TRACE_MINID_TARGET` instrumentation was used during dia
 `minID` divergence and then removed before cleanup/commit.
 
 These debug switches are diagnostic only and inactive unless explicitly enabled.
+
+## 13. Incremental update (2026-02-24): `Xe@298K step=0.5 cutoff=30` production resumed; new repair DIFFs found
+
+### Production progress after `QupxOnO1` fix
+
+`Xe @ 298 K`, `energy_step=0.5`, `energy_cutoff=30`, `grid_spacing=0.2` production was resumed.
+
+Completed batches:
+
+1. `offset=0`
+- Run dir:
+  - `sTuTraSt/production_partial_optimal_Xe_20260223_124818`
+- Production:
+  - `12/12` cases `grid_status=OK`, `cpp_status=OK`
+- Repair sampling:
+  - `31ukFeYP`: `MATCH`
+  - `2hwaT5Ut`: `MATCH`
+  - `repair_summary.csv` all sampled cases `all_ok=1`
+- Swap:
+  - `0` throughout
+
+2. `offset=12`
+- Run dir:
+  - `sTuTraSt/production_partial_optimal_Xe_20260224_012113`
+- Production:
+  - `12/12` cases `grid_status=OK`, `cpp_status=OK`
+- Repair sampling (2 cases run before stop/check):
+  - `EMGLKnk7`: `DIFF` (`basis/processes/TS`), `BT/Evol MATCH`
+  - `5I1F0W9u`: `DIFF` (`basis/processes/TS`), `BT/Evol MATCH`
+- Swap:
+  - `0` throughout
+
+### New observed mismatch pattern (post-`QupxOnO1` fix)
+
+For both sampled DIFF cases in `offset=12`:
+- `BT.dat`: `MATCH`
+- `Evol_298.dat`: `MATCH`
+- `basis.dat`: `DIFF` (line count mismatch)
+- `processes_298.dat`: `DIFF` (line count mismatch)
+- `TS_data.out`: `DIFF` (line count mismatch)
+
+Examples:
+
+1. `EMGLKnk7`
+- MATLAB vs C++:
+  - `basis.dat`: `282` vs `296`
+  - `processes_298.dat`: `858` vs `874`
+  - `TS_data.out`: `3712` vs `3794`
+
+2. `5I1F0W9u`
+- MATLAB vs C++:
+  - `basis.dat`: `164` vs `188`
+  - `processes_298.dat`: `406` vs `432`
+  - `TS_data.out`: `2607` vs `2743`
+
+This is the same high-level symptom class as the earlier `QupxOnO1` issue:
+- final breakthrough and volume evolution agree
+- intermediate topology / TS grouping / process network is over-generated in C++
+
+### Immediate implication
+
+Do **not** assume the `QupxOnO1` fixes fully solved all `298K step=0.5` cases.
+They fixed at least one important class (`filled` + process path fallback), but more branch-order/cluster-growth edge cases likely remain.
+
+### Recommended next step (current priority)
+
+Use `EMGLKnk7` as the new small reproducer for differential debugging because:
+- it is already generated in production + repair outputs
+- mismatch is moderate size (faster than the largest cases)
+- same symptom signature as previous case, likely exposing another nearby semantics gap
+
+## 14. Incremental update (2026-02-24): `EMGLKnk7` / `5I1F0W9u` mismatch repaired
+
+### Key diagnosis (different from `QupxOnO1`)
+
+For `EMGLKnk7`:
+- `minID_matrix` (`L/C`) matched MATLAB exactly
+- raw pre-organize `TS_list_all` (`coord+level`) matched MATLAB exactly (`3794` rows)
+
+So the divergence was **not** in cluster growth / raw TS generation.
+It was in the later tunnel/process reconstruction path.
+
+### Root cause
+
+C++ was under-populating `tunnel_cluster` compared with MATLAB:
+- MATLAB `check_neighbors.m` appends to `tunnel_cluster` not only in same-cluster PBC cases,
+  but also when different clusters are already in the same merge group and a nonzero cross-vector is found.
+- C++ was adding those cross-vectors to `tunnel_list` but **not** adding the current cluster to `tunnel_cluster`.
+
+This caused downstream tunnel/process reconstruction mismatches on some 298K/0.5 cases:
+- extra or missing tunnel eligibility for TS groups
+- `basis/processes/TS_data` mismatches while `BT/Evol` still matched
+
+### Fixes applied
+
+1. `tunnel_cluster` synchronization during cluster merges
+- `sTuTraSt/src/cluster.cpp`
+- `merge_clusters()` now remaps `tunnel_cluster` entries `cluster2_id -> cluster1_id`
+
+2. Missing MATLAB-equivalent `tunnel_cluster` updates for same-merge-group cross events
+- `sTuTraSt/src/cluster.cpp`
+- when `same_merge_group` and `idiff/jdiff/kdiff != 0`, C++ now updates:
+  - `tunnel_list`
+  - `tunnel_cluster`
+  - `tunnel_cluster_dim`
+  matching MATLAB behavior
+
+3. MATLAB-style tunnel/process/TS output filtering (kept)
+- `sTuTraSt/src/tunnel.cpp`
+  - tunnel creation restricted to merge groups intersecting `tunnel_cluster`
+  - TS group tunnel attachment uses `cluster1` membership semantics
+- `sTuTraSt/src/output_writer.cpp`
+  - `TS_data.out` writes only TS groups attached to tunnels (MATLAB `TS_tunnel_list` behavior)
+
+### Validation after fix
+
+New previously failing sampled cases now match:
+
+1. `EMGLKnk7` (`Xe@298K`, `step=0.5`, `cutoff=30`)
+- MATLAB dir:
+  - `sTuTraSt/production_partial_optimal_Xe_20260224_012113/repair/EMGLKnk7/matlab`
+- C++ recheck dir:
+  - `sTuTraSt/tmp_recheck_EMGL_after_tunnelclusterfix`
+- Result:
+  - `basis/processes_298/BT/TS/Evol = MATCH`
+
+2. `5I1F0W9u` (`Xe@298K`, `step=0.5`, `cutoff=30`)
+- MATLAB dir:
+  - `sTuTraSt/production_partial_optimal_Xe_20260224_012113/repair/5I1F0W9u/matlab`
+- C++ recheck dir:
+  - `sTuTraSt/tmp_recheck_5I1_after_tunnelclusterfix`
+- Result:
+  - `basis/processes_298/BT/TS/Evol = MATCH`
+
+### Regression checks (post-fix)
+
+All still pass:
+
+- `QupxOnO1 @ 298K / step=0.5`
+  - `sTuTraSt/tmp_recheck_Qupx_after_tunnelclusterfix`
+  - `MATCH`
+- `OvUUEPvZ @ 298K / step=1.0`
+  - `sTuTraSt/tmp_recheck_OvUUE_298_step1_after_tunnelclusterfix`
+  - `MATCH`
+- `OvUUEPvZ @ 1000K`
+  - `sTuTraSt/tmp_recheck_OvUUE_1000_after_tunnelclusterfix`
+  - `MATCH`
+
+### Note on batch metadata
+
+`sTuTraSt/production_partial_optimal_Xe_20260224_012113/repair_summary.csv` still records the earlier DIFF results
+because the batch C++ outputs were generated before this fix.
+Use the recheck directories above as the corrected audit evidence for those sampled cases.

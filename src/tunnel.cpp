@@ -20,18 +20,6 @@ void TunnelManager::organize_tunnels(const std::vector<int>& tunnel_cluster,
     const auto& ts_groups = ts_mgr_->ts_groups();
     const auto& clusters = cluster_mgr_->clusters();
 
-    // Build set of cluster IDs that have TS connections
-    std::set<int> clusters_with_ts;
-    for (const auto& ts_group : ts_groups) {
-        clusters_with_ts.insert(ts_group.cluster1_id);
-        clusters_with_ts.insert(ts_group.cluster2_id);
-    }
-
-    // Also add clusters from tunnel_cluster (single-cluster self-tunnels)
-    for (int cluster_id : tunnel_cluster) {
-        clusters_with_ts.insert(cluster_id);
-    }
-
     // Build lookup: cluster_id -> indices in tunnel_cluster/tunnel_cluster_dim
     std::map<int, std::vector<size_t>> tc_lookup;
     for (size_t i = 0; i < tunnel_cluster.size(); i++) {
@@ -42,10 +30,11 @@ void TunnelManager::organize_tunnels(const std::vector<int>& tunnel_cluster,
     std::set<size_t> processed_tsgroups;
 
     for (const auto& merge_group : merge_groups) {
-        // Check if any cluster in this merge group has TS connections
+        // MATLAB creates tunnels only for merge groups that contain clusters in tunnel_cluster
+        // (i.e. clusters with detected periodic self-tunnel directions).
         bool has_tunnel = false;
         for (int cluster_id : merge_group) {
-            if (clusters_with_ts.count(cluster_id) > 0) {
+            if (tc_lookup.count(cluster_id) > 0) {
                 has_tunnel = true;
                 break;
             }
@@ -65,10 +54,10 @@ void TunnelManager::organize_tunnels(const std::vector<int>& tunnel_cluster,
 
             bool c1_in_group = std::find(merge_group.begin(), merge_group.end(),
                                         ts_groups[i].cluster1_id) != merge_group.end();
-            bool c2_in_group = std::find(merge_group.begin(), merge_group.end(),
-                                        ts_groups[i].cluster2_id) != merge_group.end();
 
-            if (c1_in_group || c2_in_group) {
+            // Match MATLAB organize_TS.m tunnel assignment:
+            // TS group is attached to a tunnel by checking cluster1 membership only.
+            if (c1_in_group) {
                 tunnel.tsgroup_ids.push_back(i);
                 processed_tsgroups.insert(i);
             }

@@ -65,6 +65,7 @@ private:
     // Merge two clusters (full implementation)
     void merge_clusters(int cluster1_id, int cluster2_id, int idiff, int jdiff, int kdiff, 
                        std::vector<TSPoint>& ts_list,
+                       std::vector<int>* tunnel_cluster = nullptr,
                        std::vector<TSPoint>* ts_list_all = nullptr);
     
     // Merge merge groups only (when creating TS between clusters)

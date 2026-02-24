@@ -146,10 +146,21 @@ void OutputWriter::write_ts_data(const std::string& filename) {
     }
     
     const auto& ts_groups = ts_mgr_->ts_groups();
+    const auto& tunnels = tunnel_mgr_->tunnels();
+
+    std::set<int> tunnel_tsgroups;
+    for (const auto& tunnel : tunnels) {
+        for (int tsgid : tunnel.tsgroup_ids) {
+            tunnel_tsgroups.insert(tsgid);
+        }
+    }
     
     // Format: TSgroup_ID ceil(level*energy_step) 0 x-0.5 y-0.5 z-0.5 (matching MATLAB)
     // MATLAB: [TS_groupID ceil(TS_levels*energy_step) TS_zeroes TS_coords-0.5]
     for (size_t group_idx = 0; group_idx < ts_groups.size(); group_idx++) {
+        if (!tunnel_tsgroups.empty() && tunnel_tsgroups.count(static_cast<int>(group_idx)) == 0) {
+            continue;  // Match MATLAB TS_data.out: only TS groups attached to tunnels/processes
+        }
         const auto& group = ts_groups[group_idx];
         for (const auto& pt : group.points) {
             file << (group_idx + 1) << " "  // TSgroup_ID (1-indexed)

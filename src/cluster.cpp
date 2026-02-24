@@ -417,12 +417,24 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                     bool same_merge_group = (group_current >= 0 && group_current == group_connect);
                     if ((idiff != 0 || jdiff != 0 || kdiff != 0) && same_merge_group) {
                         tunnel_list.push_back({idiff, jdiff, kdiff});
+                        bool found = false;
+                        for (int tc : tunnel_cluster) {
+                            if (tc == cluster.id) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            tunnel_cluster.push_back(cluster.id);
+                            tunnel_cluster_dim.push_back({idiff, jdiff, kdiff});
+                        }
                     }
 
                     if (dE < energy_step) {
                         // Merge clusters - barrier too small
                         trace_pair("merge", pt, nb, pt_energy, nb_energy, dE, cluster.id, nb_cluster);
-                        merge_clusters(cluster.id, nb_cluster, idiff, jdiff, kdiff, ts_list, ts_list_all);
+                        merge_clusters(cluster.id, nb_cluster, idiff, jdiff, kdiff, ts_list,
+                                       &tunnel_cluster, ts_list_all);
                     } else {
                         // Create transition state
                         // MATLAB line 184/202: both host AND neighbor must be unmarked
@@ -540,6 +552,7 @@ int ClusterManager::find_merge_group(int cluster_id) {
 void ClusterManager::merge_clusters(int cluster1_id, int cluster2_id, 
                                     int idiff, int jdiff, int kdiff,
                                     std::vector<TSPoint>& ts_list,
+                                    std::vector<int>* tunnel_cluster,
                                     std::vector<TSPoint>* ts_list_all) {
     std::cout << "    Merging clusters " << cluster2_id << " into " << cluster1_id 
               << " (cross diff: " << idiff << "," << jdiff << "," << kdiff << ")" << std::endl;
@@ -634,6 +647,14 @@ void ClusterManager::merge_clusters(int cluster1_id, int cluster2_id,
     // Update minID_matrix for all cluster2 points
     for (const auto& pt : c2->points) {
         grid_->minID_C(pt.x, pt.y, pt.z) = cluster1_id;
+    }
+
+    // Keep tunnel_cluster IDs live across physical merges; MATLAB updates indices later on finC.
+    // Without this, tunnel_cluster can retain merged-away IDs and break tunnel reconstruction.
+    if (tunnel_cluster != nullptr) {
+        for (auto& tc : *tunnel_cluster) {
+            if (tc == cluster2_id) tc = cluster1_id;
+        }
     }
     
     // Mark cluster2 as removed

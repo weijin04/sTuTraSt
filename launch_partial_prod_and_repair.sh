@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="/home/sun07ao/xekr"
 ST="$ROOT/sTuTraSt"
+SELF_SCRIPT="$(realpath -m "${BASH_SOURCE[0]}")"
 MAKEGRID_DIR="$ROOT/makegrid"
 GRID_SCRIPT="$MAKEGRID_DIR/generate_pes_grid_v9.py"
 CPP_BIN="$ST/build/tutrast"
@@ -13,6 +14,9 @@ CIF_DIR="/home/sun07ao/xekr/CIF/clean/总/optimal"
 
 MODE="${1:-launch}"
 RUN_DIR="${2:-}"
+if [[ -n "${RUN_DIR}" ]]; then
+  RUN_DIR="$(realpath -m "$RUN_DIR")"
+fi
 
 PROBE="${PROBE:-Xe}"
 CASE_LIMIT="${CASE_LIMIT:-6}"
@@ -30,6 +34,8 @@ REPAIR_SAMPLE_LIMIT="${REPAIR_SAMPLE_LIMIT:-4}"
 SIM_TEMP="${SIM_TEMP:-1000}"
 INPUT_ENERGY_STEP="${INPUT_ENERGY_STEP:-2}"
 INPUT_ENERGY_CUTOFF="${INPUT_ENERGY_CUTOFF:-20}"
+PROD_RUN_KMC="${PROD_RUN_KMC:-1}"
+REPAIR_RUN_KMC="${REPAIR_RUN_KMC:-1}"
 
 SWAP_THRESHOLD_KB="${SWAP_THRESHOLD_KB:-131072}"
 MEM_FLOOR_KB="${MEM_FLOOR_KB:-8388608}"
@@ -48,13 +54,14 @@ probe_mass() {
 
 make_input_param() {
   local out="$1"
+  local run_kmc="${2:-$PROD_RUN_KMC}"
   local mass
   mass="$(probe_mass "$PROBE")"
   cat > "$out" <<EOF
 6
 1
 $SIM_TEMP
-0
+${run_kmc}
 0
 3000
 100
@@ -199,6 +206,8 @@ run_case() {
     (
       source /home/sun07ao/.local/share/mamba/etc/profile.d/mamba.sh
       mamba activate mkgrid
+      export JOBLIB_TEMP_FOLDER=/tmp
+      export TMPDIR=/tmp
       cd "$MAKEGRID_DIR"
       python "$GRID_SCRIPT" "$cif" "$grid_out" \
         --probe "$PROBE" \
@@ -221,7 +230,7 @@ run_case() {
   fi
 
   cp "$grid_out" "$run_cpp/grid.cube"
-  make_input_param "$run_cpp/input.param"
+  make_input_param "$run_cpp/input.param" "$PROD_RUN_KMC"
 
   # Use monotonic uptime instead of wall clock to avoid negative durations when NTP adjusts system time.
   local cs ce _
@@ -237,7 +246,12 @@ run_case() {
     cpp_status="FAIL"
   fi
   if [[ -f "$run_cpp/basis.dat" ]]; then basis_lines=$(wc -l < "$run_cpp/basis.dat"); fi
-  if [[ -f "$run_cpp/processes_1000.dat" ]]; then proc_lines=$(wc -l < "$run_cpp/processes_1000.dat"); fi
+  if [[ -f "$run_cpp/processes_${SIM_TEMP}.dat" ]]; then
+    proc_lines=$(wc -l < "$run_cpp/processes_${SIM_TEMP}.dat")
+  elif [[ -f "$run_cpp/processes_1000.dat" ]]; then
+    # Fallback for older runs/scripts.
+    proc_lines=$(wc -l < "$run_cpp/processes_1000.dat")
+  fi
 
   printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
     "$case_id" "$cif" "$est_vox" "$nx" "$ny" "$nz" \
@@ -262,6 +276,47 @@ compare_one_file() {
   fi
 }
 
+compare_dave_stat() {
+  local matdir="$1"
+  local cppdir="$2"
+  local fname="$3"
+  python3 - "$matdir/$fname" "$cppdir/$fname" <<'PY' 2>/dev/null || { echo "ERROR"; return; }
+import math, sys, os
+f1, f2 = sys.argv[1], sys.argv[2]
+if (not os.path.exists(f1)) and (not os.path.exists(f2)):
+    print("SKIP"); raise SystemExit(0)
+if not os.path.exists(f1) or not os.path.exists(f2):
+    print("DIFF"); raise SystemExit(0)
+try:
+    a = [float(x) for x in open(f1).read().split()]
+    b = [float(x) for x in open(f2).read().split()]
+except Exception:
+    print("ERROR"); raise SystemExit(0)
+if len(a) != 6 or len(b) != 6:
+    print("DIFF"); raise SystemExit(0)
+
+# D_ave format: Dx errx Dy erry Dz errz
+ok = True
+for i in (0, 2, 4):
+    d1, e1 = a[i], abs(a[i+1])
+    d2, e2 = b[i], abs(b[i+1])
+    if max(abs(d1), abs(d2), e1, e2) < 1e-20:
+        continue
+    sigma = math.sqrt(e1*e1 + e2*e2)
+    diff = abs(d1 - d2)
+    # Tightened criterion for screening use:
+    # 1) primary: statistical consistency within 3 sigma
+    # 2) fallback: <=10% relative difference, but only for non-negligible (non-near-zero) axes
+    stat_ok = (sigma > 0 and diff <= 3.0 * sigma)
+    informative = max(abs(d1), abs(d2)) > 10.0 * max(e1, e2, 1e-30)
+    rel_ok = informative and (diff / max(abs(d1), abs(d2), 1e-30) <= 0.10)
+    if not (stat_ok or rel_ok):
+        ok = False
+        break
+print("MATCH" if ok else "DIFF")
+PY
+}
+
 run_repair_case() {
   local run_dir="$1"
   local case_id="$2"
@@ -275,33 +330,51 @@ run_repair_case() {
 
   cp "$cppdir/grid.cube" "$matdir/grid.cube"
   cp "$cppdir/input.param" "$matdir/input.param"
+  if [[ "${REPAIR_RUN_KMC}" != "${PROD_RUN_KMC}" ]]; then
+    awk -v kmc="$REPAIR_RUN_KMC" 'NR==4{$0=kmc} {print}' "$matdir/input.param" > "$matdir/input.param.tmp"
+    mv "$matdir/input.param.tmp" "$matdir/input.param"
+  fi
 
   set +e
   (cd "$matdir" && env -u LD_LIBRARY_PATH timeout "$MAT_TIMEOUT" octave -qf --path "$patch_dir:$MATLAB_DIR" "$MATLAB_MAIN" > stdout.log 2>&1)
   local m_exit=$?
   set -e
 
-  local s_basis s_proc s_bt s_ts s_evol s_tunnel all_ok note
-  s_basis="$(compare_one_file "$matdir" "$cppdir" "basis.dat")"
-  s_proc="$(compare_one_file "$matdir" "$cppdir" "processes_1000.dat")"
-  s_bt="$(compare_one_file "$matdir" "$cppdir" "BT.dat")"
-  s_ts="$(compare_one_file "$matdir" "$cppdir" "TS_data.out")"
-  s_evol="$(compare_one_file "$matdir" "$cppdir" "Evol_1000.dat")"
-  s_tunnel="$(compare_one_file "$matdir" "$cppdir" "tunnel_info.out")"
+  local proc_file evol_file dave_file
+  proc_file="processes_${SIM_TEMP}.dat"
+  evol_file="Evol_${SIM_TEMP}.dat"
+  dave_file="D_ave_${SIM_TEMP}.dat"
+  local s_basis s_proc s_bt s_ts s_evol s_dave s_tunnel all_ok note
+  if [[ $m_exit -eq 0 ]]; then
+    s_basis="$(compare_one_file "$matdir" "$cppdir" "basis.dat")"
+    s_proc="$(compare_one_file "$matdir" "$cppdir" "$proc_file")"
+    s_bt="$(compare_one_file "$matdir" "$cppdir" "BT.dat")"
+    s_ts="$(compare_one_file "$matdir" "$cppdir" "TS_data.out")"
+    s_evol="$(compare_one_file "$matdir" "$cppdir" "$evol_file")"
+    s_dave="$(compare_dave_stat "$matdir" "$cppdir" "$dave_file")"
+    s_tunnel="$(compare_one_file "$matdir" "$cppdir" "tunnel_info.out")"
 
-  all_ok=1
-  for s in "$s_basis" "$s_proc" "$s_bt" "$s_ts" "$s_evol" "$s_tunnel"; do
-    if [[ "$s" == "DIFF" || "$s" == "ERROR" ]]; then
-      all_ok=0
+    all_ok=1
+    for s in "$s_basis" "$s_proc" "$s_bt" "$s_ts" "$s_evol" "$s_dave" "$s_tunnel"; do
+      if [[ "$s" == "DIFF" || "$s" == "ERROR" ]]; then
+        all_ok=0
+      fi
+    done
+    note="ok"
+  else
+    # Avoid recording timeout/nonzero-exit runs as fake DIFF rows.
+    if [[ $m_exit -eq 124 ]]; then
+      s_basis="TIMEOUT"; s_proc="TIMEOUT"; s_bt="TIMEOUT"; s_ts="TIMEOUT"; s_evol="TIMEOUT"; s_dave="TIMEOUT"; s_tunnel="TIMEOUT"
+      note="mat_timeout"
+    else
+      s_basis="MAT_FAIL"; s_proc="MAT_FAIL"; s_bt="MAT_FAIL"; s_ts="MAT_FAIL"; s_evol="MAT_FAIL"; s_dave="MAT_FAIL"; s_tunnel="MAT_FAIL"
+      note="mat_nonzero_exit"
     fi
-  done
-  note="ok"
-  if [[ $m_exit -ne 0 ]]; then
-    note="mat_nonzero_exit"
+    all_ok=0
   fi
 
-  printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
-    "$case_id" "$m_exit" "$s_basis" "$s_proc" "$s_bt" "$s_ts" "$s_evol" "$s_tunnel" "$all_ok" "$note" \
+  printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+    "$case_id" "$m_exit" "$s_basis" "$s_proc" "$s_bt" "$s_ts" "$s_evol" "$s_dave" "$s_tunnel" "$all_ok" "$note" \
     >> "$run_dir/repair_summary.csv"
 }
 
@@ -344,7 +417,7 @@ run_repair_monitor() {
   local run_dir="$1"
   local patch_dir="$run_dir/repair_patch"
   ensure_repair_patch "$patch_dir"
-  local repair_header="case_id,mat_exit,basis,processes,BT,TS,Evol,tunnel,all_ok,note"
+  local repair_header="case_id,mat_exit,basis,processes,BT,TS,Evol,Dave,tunnel,all_ok,note"
   if [[ ! -f "$run_dir/repair_summary.csv" ]]; then
     echo "$repair_header" > "$run_dir/repair_summary.csv"
   else
@@ -374,6 +447,8 @@ try:
             done.add(r["case_id"])
 except FileNotFoundError:
     pass
+if limit > 0 and len(done) >= limit:
+    raise SystemExit(0)
 todo=[]
 with open(summary) as f:
     for r in csv.DictReader(f):
@@ -381,12 +456,13 @@ with open(summary) as f:
             continue
         if int(r["est_vox"]) > max_vox:
             continue
-        cid=r["case_id"]
-        if cid in done:
-            continue
-        todo.append((int(r["est_vox"]), cid, r["case_dir"]))
+        todo.append((int(r["est_vox"]), r["case_id"], r["case_dir"]))
 todo.sort()
-for _,cid,cdir in todo[:limit]:
+if limit > 0:
+    todo = todo[:limit]
+for _,cid,cdir in todo:
+    if cid in done:
+        continue
     print(f"{cid},{cdir}")
 PY
 )"
@@ -411,6 +487,9 @@ try:
             done.add(r["case_id"])
 except FileNotFoundError:
     pass
+if limit > 0 and len(done) >= limit:
+    print(0)
+    raise SystemExit(0)
 todo=[]
 with open(summary) as f:
     for r in csv.DictReader(f):
@@ -438,9 +517,10 @@ PY
 }
 
 launch() {
-  local ts run_dir
+  local ts uniq run_dir
   ts="$(date +%Y%m%d_%H%M%S)"
-  run_dir="$ST/production_partial_optimal_${PROBE}_${ts}"
+  uniq="$(date +%N)"
+  run_dir="$ST/production_partial_optimal_${PROBE}_${ts}_off$(printf '%03d' "$CASE_OFFSET")_${uniq}"
   mkdir -p "$run_dir/cases" "$run_dir/grids" "$run_dir/repair"
   echo "RUN_DIR=$run_dir"
   cat > "$run_dir/config.env" <<EOF
@@ -456,6 +536,8 @@ CPP_TIMEOUT=$CPP_TIMEOUT
 MAT_TIMEOUT=$MAT_TIMEOUT
 REPAIR_MAX_VOXELS=$REPAIR_MAX_VOXELS
 REPAIR_SAMPLE_LIMIT=$REPAIR_SAMPLE_LIMIT
+PROD_RUN_KMC=$PROD_RUN_KMC
+REPAIR_RUN_KMC=$REPAIR_RUN_KMC
 SIM_TEMP=$SIM_TEMP
 INPUT_ENERGY_STEP=$INPUT_ENERGY_STEP
 INPUT_ENERGY_CUTOFF=$INPUT_ENERGY_CUTOFF
@@ -465,11 +547,11 @@ EOF
 
   echo "timestamp,running_jobs,mem_avail_kb,swap_used_kb" > "$run_dir/scheduler.csv"
   echo "case_id,cif,est_vox,nx,ny,nz,grid_status,cpp_status,cpp_time_s,basis_lines,proc_lines,case_dir" > "$run_dir/summary.csv"
-  echo "case_id,mat_exit,basis,processes,BT,TS,Evol,tunnel,all_ok,note" > "$run_dir/repair_summary.csv"
+  echo "case_id,mat_exit,basis,processes,BT,TS,Evol,Dave,tunnel,all_ok,note" > "$run_dir/repair_summary.csv"
 
-  "$0" produce "$run_dir" &
+  "$SELF_SCRIPT" produce "$run_dir" &
   local prod_pid=$!
-  "$0" repair "$run_dir" &
+  "$SELF_SCRIPT" repair "$run_dir" &
   local repair_pid=$!
 
   wait "$prod_pid"

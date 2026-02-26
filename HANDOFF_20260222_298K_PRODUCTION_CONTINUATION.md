@@ -1472,3 +1472,13 @@ Resource status during launch/recovery:
   - If other nonzero exit: write `MAT_FAIL` for those fields, `all_ok=0`, `note=mat_nonzero_exit`.
 - Result: future `repair_summary.csv` rows no longer report timeout-induced fake DIFFs; dashboards and scans can separate true mismatches from audit timeouts cleanly.
 - Current policy remains: keep timeout caps (`MAT_TIMEOUT`, `CPP_TIMEOUT`) as guardrails, but treat timeout rows as audit-incomplete rather than comparison failures.
+
+## 2026-02-27 02:4x Raise MATLAB repair timeout to 12h + staged monitor recycle
+- User approved raising MATLAB (original/TuTraSt) repair timeout cap to 12h for verification.
+- Script default updated: `MAT_TIMEOUT` default changed from `2400` to `43200` seconds in `launch_partial_prod_and_repair.sh`.
+- Important note: existing repair monitors already running from old configs/processes continue using their current in-process environment (`MAT_TIMEOUT=21600`) until restarted.
+- To avoid disrupting active long-running Octave cases, duplicate idle repair wrappers (created during backfill) were cleaned first; one wrapper per RUN_DIR remains.
+- Current staged strategy:
+  1) Do not kill wrappers currently hosting an active Octave child.
+  2) When a run finishes its current repair case (or the wrapper exits/gets recycled), restart that RUN_DIR repair monitor with `MAT_TIMEOUT=43200` and new timeout-status logic (`TIMEOUT`/`MAT_FAIL` instead of fake `DIFF`).
+- Benefit: preserves current compute progress while converging the fleet to clearer audit semantics and longer timeout budget.

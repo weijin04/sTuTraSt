@@ -1580,3 +1580,18 @@ bash /home/sun07ao/xekr/sTuTraSt/launch_partial_prod_and_repair.sh repair <RUN_D
 - Resource snapshot after enforcement:
   - `MemAvailable ~61.9 GB`
   - `SwapUsed = 0`
+
+## 2026-02-27 16:1x Contrast-driven MATLAB compare batch (cap=4)
+- User requested to first pick high Xe/Kr-contrast samples from C++ and compare with MATLAB.
+- Ranked by C++ contrast score on paired Xe/Kr cases (`max(Kr/Xe, Xe/Kr)` over scalarized `D_ave_298`):
+  - top unresolved included: `uC8nbVee` (off180), `VXfwzQww` (off132), `xA8rS7sM` (off096), `IlwN70U5` (off096), ...
+- Active run policy now: strict total parallel cap = 4 Octave jobs.
+- Current active set after enforcement:
+  - Kr off180 / `uC8nbVee`
+  - Xe off096 / `xA8rS7sM`
+  - Kr off096 / `xA8rS7sM`
+  - Xe off096 / `IlwN70U5`
+- One low-priority extra launch was terminated to keep cap at 4.
+- Runtime snapshot:
+  - `MemAvailable ~61.8 GB`
+  - `SwapUsed = 0`

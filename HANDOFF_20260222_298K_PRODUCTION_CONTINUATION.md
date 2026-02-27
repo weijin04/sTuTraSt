@@ -1539,3 +1539,32 @@ Resource status during launch/recovery:
   - Octave jobs ~14
   - load ~8.5
   - `SwapUsed=0`, `MemAvailable ~59.9 GB`
+
+## 2026-02-27 10:2x Stop-current-batch + handoff-ready cleanup
+- User instruction applied: stop current local batch, clean intermediate files, then handoff.
+- **All local running repair/Octave processes were stopped**.
+  - Verified no active `launch_partial_prod_and_repair.sh repair/produce`, no `octave-cli`, no `timeout 43200 ... TuTraSt_main`.
+- Intermediate runtime artifacts were archived (not deleted) for traceability:
+  - `archive/20260227_stop_and_handoff_cleanup/ARCHIVE_MANIFEST_20260227_102458.tsv`
+  - archived items include:
+    - `production_partial_optimal_*/repair_targeted/`
+    - `production_partial_optimal_*/repair_dispatch.log`
+    - stale lock/flag residues (if present)
+- Post-clean verification:
+  - `repair_targeted` dirs under active production runs: `0`
+  - `repair_dispatch.log` files under active production runs: `0`
+  - `RUNNING.lock` files under active production runs: `0`
+
+### Priority order to follow (user-confirmed)
+1. First: check alignment result quality.
+2. If key mismatch exists: fix C++ and rerun.
+3. Only after that: archive/cleanup and handoff updates.
+
+### Server-side resume suggestion (from clean state)
+- For each target run dir, launch one repair monitor with 12h cap and sample cap=3:
+```bash
+set -a; source <RUN_DIR>/config.env; set +a
+export MAT_TIMEOUT=43200 REPAIR_SAMPLE_LIMIT=3
+bash /home/sun07ao/xekr/sTuTraSt/launch_partial_prod_and_repair.sh repair <RUN_DIR>
+```
+- Prefer contrast-first validation cases (Xe/Kr difference large) before broad backfill.

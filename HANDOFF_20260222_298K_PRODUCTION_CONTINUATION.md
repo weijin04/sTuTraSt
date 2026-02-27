@@ -1524,3 +1524,18 @@ Resource status during launch/recovery:
   - off144: `4BoAdfVz`
   - off168: `JZILljtZ`
   - off180: `AmNyFYOG`
+
+## 2026-02-27 10:0x Priority correction: contrast-first validation
+- User clarified strict priority: **alignment check first**; if key mismatch exists, fix C++ and rerun; archive/handoff updates are secondary.
+- Gap acknowledged: previously active MATLAB repairs were mostly backfill-selected by `est_vox` ordering, not strictly by maximum Xe/Kr contrast.
+- Corrective action taken immediately:
+  - launched targeted paired MATLAB repairs (independent `repair_targeted/`) for highest C++ contrast candidates:
+    - off180: `uC8nbVee` (Xe~0 vs Kr>0)
+    - off132: `VXfwzQww` (Xe~0 vs Kr>0)
+    - off096: `xA8rS7sM` (Xe~0 vs Kr>0)
+  - total targeted jobs started: 6 (Xe+Kr for each case)
+- Existing background repairs still running are primarily backfill pairs in off132/off144/off156/off168 (current cases: `EH1fH9gz`, `EJdLRLZu`, `2RSmenr7`, `5OrSQrPy`).
+- Runtime snapshot after targeted launch:
+  - Octave jobs ~14
+  - load ~8.5
+  - `SwapUsed=0`, `MemAvailable ~59.9 GB`

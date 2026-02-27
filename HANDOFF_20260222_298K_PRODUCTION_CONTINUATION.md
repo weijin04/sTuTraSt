@@ -1505,3 +1505,22 @@ Resource status during launch/recovery:
   - repair wrappers: ~18
   - active Octave jobs: ~8
   - swap: 0
+
+## 2026-02-27 09:49 Additional repair backfill (paired coverage)
+- Continued backfill under `MAT_TIMEOUT=43200`, `REPAIR_SAMPLE_LIMIT=3` using detached dispatch.
+- Newly dispatched runs include:
+  - Kr off060/off072/off084
+  - Xe/Kr off108
+  - Xe/Kr off120
+  - (already running from earlier: Xe/Kr off132/off144/off156/off168/off180/off192, Xe off143111, Xe/Kr off096)
+- Current runtime snapshot after dispatch:
+  - repair wrappers ~18
+  - active Octave jobs ~8
+  - load ~7.5
+  - `SwapUsed=0`, `MemAvailable ~60 GB`
+- Current paired successful Xe/Kr MATLAB-repair sample count (mat_exit=0 on both species for same off-group+case): 5
+  - off108: `eB9tE9pe`
+  - off120: `0tkfBSV3`
+  - off144: `4BoAdfVz`
+  - off168: `JZILljtZ`
+  - off180: `AmNyFYOG`

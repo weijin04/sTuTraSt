@@ -1482,3 +1482,15 @@ Resource status during launch/recovery:
   1) Do not kill wrappers currently hosting an active Octave child.
   2) When a run finishes its current repair case (or the wrapper exits/gets recycled), restart that RUN_DIR repair monitor with `MAT_TIMEOUT=43200` and new timeout-status logic (`TIMEOUT`/`MAT_FAIL` instead of fake `DIFF`).
 - Benefit: preserves current compute progress while converging the fleet to clearer audit semantics and longer timeout budget.
+
+## 2026-02-27 09:4x 12h repair relaunch + session-safe dispatch
+- Observed that previous interactive exec sessions hit session-cap warnings; switched dispatch approach to detached launch (`nohup ... repair`) so monitor jobs keep running without consuming exec session slots.
+- Relaunched/confirmed active repair monitors under `MAT_TIMEOUT=43200` and `REPAIR_SAMPLE_LIMIT=3` for key paired runs:
+  - Xe/Kr off132, off144, off156, off168
+  - Xe/Kr off180, off192
+  - Xe off143111, Xe/Kr off096
+- Runtime snapshot after relaunch:
+  - repair wrappers ~18, active Octave jobs ~8
+  - load ~4.3
+  - `MemAvailable ~60 GB`, `SwapUsed=0`
+- Directory hygiene note: dispatch now avoids spawning redundant foreground sessions; background log file per run is written to `RUN_DIR/repair_dispatch.log`.

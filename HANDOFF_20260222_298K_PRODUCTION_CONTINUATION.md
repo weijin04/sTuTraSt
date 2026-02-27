@@ -1494,3 +1494,14 @@ Resource status during launch/recovery:
   - load ~4.3
   - `MemAvailable ~60 GB`, `SwapUsed=0`
 - Directory hygiene note: dispatch now avoids spawning redundant foreground sessions; background log file per run is written to `RUN_DIR/repair_dispatch.log`.
+
+## 2026-02-27 09:48 Runtime cleanup pass (directory hygiene)
+- Per user request for ongoing directory clarity, archived intermediate runtime artifacts without touching active production runs.
+- Archived 43 items (mostly `tmp_*` repro dirs and ad-hoc logs) into:
+  - `archive/20260227_runtime_cleanup/runtime_tmp_and_logs/`
+- Manifest:
+  - `archive/20260227_runtime_cleanup/ARCHIVE_MANIFEST_20260227_094839.tsv`
+- Active compute unaffected after cleanup:
+  - repair wrappers: ~18
+  - active Octave jobs: ~8
+  - swap: 0

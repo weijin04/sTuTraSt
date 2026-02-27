@@ -1,0 +1,11 @@
+run_dir	case_id	mat_exit	basis	processes	BT	TS	Evol	Dave
+production_partial_optimal_Kr_20260225_152147_off096_manual	Y056rME0	124	DIFF	DIFF	DIFF	DIFF	DIFF	DIFF
+production_partial_optimal_Kr_20260225_152147_off096_manual	FEw5DGWq	124	DIFF	DIFF	DIFF	DIFF	DIFF	DIFF
+production_partial_optimal_Kr_20260225_203559_off108_manual	5QQ7kWIU	124	DIFF	DIFF	DIFF	DIFF	DIFF	DIFF
+production_partial_optimal_Kr_20260226_005118_off132_manual	5jxD5tSz	124	DIFF	DIFF	DIFF	DIFF	DIFF	DIFF
+production_partial_optimal_Kr_20260226_005120_off144_manual	GqC4AGSR	124	DIFF	DIFF	DIFF	DIFF	DIFF	DIFF
+production_partial_optimal_Kr_20260226_144328_off156_manual	AWwBDPp7	124	DIFF	DIFF	MATCH	DIFF	DIFF	DIFF
+production_partial_optimal_Kr_20260226_191101_off192_945129395	98vGZie8	124	DIFF	DIFF	DIFF	DIFF	DIFF	DIFF
+production_partial_optimal_Xe_20260225_152146_off096_manual	Y056rME0	124	DIFF	DIFF	MATCH	DIFF	DIFF	DIFF
+production_partial_optimal_Xe_20260226_005117_off132_manual	5jxD5tSz	124	DIFF	DIFF	MATCH	DIFF	DIFF	DIFF
+production_partial_optimal_Xe_20260226_005119_off144_manual	P2TAJbx7	124	DIFF	DIFF	DIFF	DIFF	DIFF	DIFF

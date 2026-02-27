@@ -1568,3 +1568,15 @@ export MAT_TIMEOUT=43200 REPAIR_SAMPLE_LIMIT=3
 bash /home/sun07ao/xekr/sTuTraSt/launch_partial_prod_and_repair.sh repair <RUN_DIR>
 ```
 - Prefer contrast-first validation cases (Xe/Kr difference large) before broad backfill.
+
+## 2026-02-27 10:3x Restart with strict parallel cap=4
+- User requested restart with total parallel count limited to 4.
+- Active jobs are now exactly 4 Octave repairs (no wrappers/producers):
+  - Xe off180 / `uC8nbVee`
+  - Kr off180 / `uC8nbVee`
+  - Xe off132 / `VXfwzQww`
+  - Kr off132 / `VXfwzQww`
+- A fifth low-priority launch (`Xe off096 / xA8rS7sM`) was immediately stopped to enforce the cap.
+- Resource snapshot after enforcement:
+  - `MemAvailable ~61.9 GB`
+  - `SwapUsed = 0`

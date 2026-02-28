@@ -17,10 +17,12 @@ struct Position3D {
 class KMC {
 public:
     KMC(const std::vector<Coord3D>& basis_sites,
+        const std::vector<int>& basis_tunnel_ids,
         const std::vector<Process>& processes,
         double temperature,
         const std::array<int, 3>& ngrid,
         const std::array<double, 3>& grid_size,
+        int per_tunnel,
         const std::array<double, 3>& BT = {0.0, 0.0, 0.0});
 
     // Run single kMC simulation, returns trajectory data
@@ -35,12 +37,14 @@ public:
 
 private:
     std::vector<Coord3D> basis_sites_;
+    std::vector<int> basis_tunnel_ids_;
     std::vector<Process> processes_;
     std::vector<Position3D> process_displacements_;
     double temperature_;
     std::mt19937 rng_;
     std::array<int, 3> ngrid_;
     std::array<double, 3> grid_size_;
+    int per_tunnel_;
     std::array<double, 3> BT_;
 
     void precompute_displacements();

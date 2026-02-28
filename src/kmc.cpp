@@ -6,13 +6,15 @@
 #include <iostream>
 
 KMC::KMC(const std::vector<Coord3D>& basis_sites,
+         const std::vector<int>& basis_tunnel_ids,
          const std::vector<Process>& processes,
          double temperature,
          const std::array<int, 3>& ngrid,
          const std::array<double, 3>& grid_size,
+         int per_tunnel,
          const std::array<double, 3>& BT)
-    : basis_sites_(basis_sites), processes_(processes),
-      temperature_(temperature), ngrid_(ngrid), grid_size_(grid_size), BT_(BT) {
+    : basis_sites_(basis_sites), basis_tunnel_ids_(basis_tunnel_ids), processes_(processes),
+      temperature_(temperature), ngrid_(ngrid), grid_size_(grid_size), per_tunnel_(per_tunnel), BT_(BT) {
     std::random_device rd;
     rng_.seed(rd());
     precompute_displacements();
@@ -43,121 +45,169 @@ void KMC::precompute_displacements() {
 void KMC::run(int n_steps, int n_particles,
               std::vector<std::vector<double>>& traj_times,
               std::vector<std::vector<Position3D>>& traj_positions) {
-    // Initialize particles at random basis sites
-    std::vector<int> particle_sites(n_particles);
-    std::uniform_int_distribution<int> site_dist(0, basis_sites_.size() - 1);
+    // MATLAB kmc_noplot initialization:
+    // types is occupancy by basis index; type_trajectory stores [site_id, cumulative displacement].
+    const int nbasis = static_cast<int>(basis_sites_.size());
+    std::vector<int> types(nbasis, 0);
 
-    for (int i = 0; i < n_particles; i++) {
-        particle_sites[i] = site_dist(rng_);
+    int max_tunnel_id = 0;
+    for (int tid : basis_tunnel_ids_) max_tunnel_id = std::max(max_tunnel_id, tid);
+
+    // Place n_particles in each tunnel group using MATLAB's deterministic stride rule.
+    for (int iT = 1; iT <= max_tunnel_id; iT++) {
+        int nbasis_iT = 0;
+        int first_idx = -1;
+        for (int i = 0; i < nbasis; i++) {
+            if (basis_tunnel_ids_[i] == iT) {
+                if (first_idx < 0) first_idx = i;
+                nbasis_iT++;
+            }
+        }
+        if (nbasis_iT == 0 || n_particles <= 0 || first_idx < 0) continue;
+
+        int first = (nbasis_iT % n_particles) + first_idx;
+        int every = nbasis_iT / n_particles;
+        if (every <= 0) continue;
+
+        int end_idx = first + nbasis_iT - 1;
+        for (int idx = first; idx <= end_idx && idx < nbasis; idx += every) {
+            types[idx] = 1;
+        }
     }
 
-    // Particle positions in Angstroms (accumulated displacements)
-    std::vector<Position3D> particle_positions(n_particles);
+    int effective_particles = n_particles;
+    if (per_tunnel_ == 1 && max_tunnel_id > 0) {
+        effective_particles = n_particles * max_tunnel_id;
+    }
+    (void)effective_particles;  // kept for traceability to MATLAB variable flow
 
-    for (int i = 0; i < n_particles; i++) {
-        const Coord3D& site = basis_sites_[particle_sites[i]];
-        particle_positions[i].x = site.x * grid_size_[0];
-        particle_positions[i].y = site.y * grid_size_[0];
-        particle_positions[i].z = site.z * grid_size_[0];
+    struct TrajState {
+        int site_id_1based;
+        Position3D pos;
+    };
+    std::vector<TrajState> type_trajectory(nbasis);
+    for (int i = 0; i < nbasis; i++) {
+        type_trajectory[i].site_id_1based = i + 1;
+        type_trajectory[i].pos = Position3D(0.0, 0.0, 0.0);
     }
 
-    // Store full trajectories: time + position per particle per step
-    // traj_times[p][step], traj_positions[p][step]
-    traj_times.resize(n_particles);
-    traj_positions.resize(n_particles);
-    for (int p = 0; p < n_particles; p++) {
-        traj_times[p].resize(n_steps + 1);
-        traj_positions[p].resize(n_steps + 1);
-        traj_times[p][0] = 0.0;
-        traj_positions[p][0] = particle_positions[p];
+    std::vector<int> li_sites;
+    li_sites.reserve(nbasis);
+    for (int i = 0; i < nbasis; i++) {
+        if (types[i] == 1) li_sites.push_back(i);
     }
+    effective_particles = static_cast<int>(li_sites.size());
 
-    std::uniform_real_distribution<double> uniform_dist(0.0, 1.0);
+    traj_times.assign(effective_particles, std::vector<double>(n_steps, 0.0));
+    traj_positions.assign(effective_particles, std::vector<Position3D>(n_steps, Position3D()));
+
+    std::uniform_real_distribution<double> uniform01(0.0, 1.0);
     double current_time = 0.0;
 
     for (int step = 0; step < n_steps; step++) {
-        double total_rate_all_particles = 0.0;
+        std::vector<int> type1_indices;
+        type1_indices.reserve(nbasis);
+        std::vector<int> type2_indices;
+        type2_indices.reserve(nbasis + effective_particles);
 
-        for (int p = 0; p < n_particles; p++) {
-            int current_site = particle_sites[p];
-            for (size_t i = 0; i < processes_.size(); i++) {
-                if (processes_[i].from_basis == current_site && processes_[i].rate > 0) {
-                    total_rate_all_particles += processes_[i].rate;
-                }
+        for (int i = 0; i < nbasis; i++) {
+            if (types[i] == 1) {
+                type1_indices.push_back(i + 1);  // MATLAB basis index is 1-based
+                type2_indices.push_back(i + 1);
+            }
+        }
+        for (int i = 0; i < nbasis; i++) {
+            if (types[i] == 0) type2_indices.push_back(i + 1);
+        }
+
+        std::vector<int> process_avail;
+        process_avail.reserve(processes_.size());
+        for (size_t pi = 0; pi < processes_.size(); pi++) {
+            const int from1 = processes_[pi].from_basis + 1;
+            const int to1 = processes_[pi].to_basis + 1;
+            if (std::find(type1_indices.begin(), type1_indices.end(), from1) == type1_indices.end()) continue;
+            if (std::find(type2_indices.begin(), type2_indices.end(), to1) == type2_indices.end()) continue;
+            process_avail.push_back(static_cast<int>(pi));
+        }
+
+        double rate_length = 0.0;
+        for (int pi : process_avail) rate_length += processes_[pi].rate;
+        if (process_avail.empty() || rate_length <= 0.0) {
+            for (int k = 0; k < effective_particles; k++) {
+                traj_times[k][step] = current_time;
+                traj_positions[k][step] = type_trajectory[li_sites[k]].pos;
+            }
+            continue;
+        }
+
+        const double pick_process = uniform01(rng_) * rate_length;
+        double process_sum = 0.0;
+        int selected = process_avail.front();
+        for (int pi : process_avail) {
+            process_sum += processes_[pi].rate;
+            if (process_sum >= pick_process) {
+                selected = pi;
+                break;
             }
         }
 
-        // Advance time
-        if (total_rate_all_particles > 0) {
-            double rand_val = uniform_dist(rng_);
-            if (rand_val > 0) {
-                double dt = std::log(1.0 / rand_val) / total_rate_all_particles;
-                current_time += dt;
+        const Process& proc = processes_[selected];
+        const int from0 = proc.from_basis;
+        const int to0 = proc.to_basis;
+        types[from0] = 0;
+        types[to0] = 1;
+
+        int coord_li = -1;
+        int coord_empty = -1;
+        const int from1 = from0 + 1;
+        const int to1 = to0 + 1;
+        for (int i = 0; i < nbasis; i++) {
+            if (type_trajectory[i].site_id_1based == from1) coord_li = i;
+            if (type_trajectory[i].site_id_1based == to1) coord_empty = i;
+        }
+
+        if (coord_li >= 0 && coord_empty >= 0) {
+            std::swap(type_trajectory[coord_li].site_id_1based, type_trajectory[coord_empty].site_id_1based);
+            const auto& d = process_displacements_[selected];
+            type_trajectory[coord_li].pos.x += d.x;
+            type_trajectory[coord_li].pos.y += d.y;
+            type_trajectory[coord_li].pos.z += d.z;
+            if (coord_li != coord_empty) {
+                type_trajectory[coord_empty].pos.x -= d.x;
+                type_trajectory[coord_empty].pos.y -= d.y;
+                type_trajectory[coord_empty].pos.z -= d.z;
             }
         }
 
-        // For each particle, perform one kMC step
-        for (int p = 0; p < n_particles; p++) {
-            int current_site = particle_sites[p];
+        double r = uniform01(rng_);
+        if (r <= 0.0) r = 1e-12;
+        current_time += std::log(1.0 / r) / rate_length;
 
-            std::vector<int> valid_processes;
-            std::vector<double> rates;
-            double total_rate = 0.0;
-
-            for (size_t i = 0; i < processes_.size(); i++) {
-                if (processes_[i].from_basis == current_site && processes_[i].rate > 0) {
-                    valid_processes.push_back(i);
-                    rates.push_back(processes_[i].rate);
-                    total_rate += processes_[i].rate;
-                }
-            }
-
-            if (total_rate > 0 && !valid_processes.empty()) {
-                std::uniform_real_distribution<double> rate_dist(0.0, total_rate);
-                double rand_rate = rate_dist(rng_);
-
-                double cumulative = 0.0;
-                int selected_process = valid_processes[0];
-
-                for (size_t i = 0; i < valid_processes.size(); i++) {
-                    cumulative += rates[i];
-                    if (rand_rate <= cumulative) {
-                        selected_process = valid_processes[i];
-                        break;
-                    }
-                }
-
-                const Process& proc = processes_[selected_process];
-                particle_sites[p] = proc.to_basis;
-
-                particle_positions[p].x += process_displacements_[selected_process].x;
-                particle_positions[p].y += process_displacements_[selected_process].y;
-                particle_positions[p].z += process_displacements_[selected_process].z;
-            }
-
-            traj_times[p][step + 1] = current_time;
-            traj_positions[p][step + 1] = particle_positions[p];
+        for (int k = 0; k < effective_particles; k++) {
+            traj_times[k][step] = current_time;
+            traj_positions[k][step] = type_trajectory[li_sites[k]].pos;
         }
     }
 }
 
 std::vector<int> KMC::generate_msd_steps(int n_steps) {
-    // Generate logarithmic lag steps: 1,2,...,10,20,...,100,200,...,n_steps
+    // Match MATLAB TuTraSt_main.m:
+    // msd_steps = []
+    // for log_order = 0:ceil(log10(nsteps))-1
+    //     msd_steps = [msd_steps 10^log_order*(1:9)]
+    // end
+    // msd_steps(msd_steps>=nsteps) = []
     std::vector<int> steps;
-    for (int i = 1; i <= std::min(10, n_steps); i++) {
-        steps.push_back(i);
-    }
-    for (int decade = 10; decade < n_steps; decade *= 10) {
-        for (int mult = 2; mult <= 10; mult++) {
-            int val = decade * mult;
-            if (val <= n_steps) {
+    if (n_steps <= 1) return steps;
+    int max_order = static_cast<int>(std::ceil(std::log10(static_cast<double>(n_steps)))) - 1;
+    for (int order = 0; order <= max_order; order++) {
+        int base = static_cast<int>(std::pow(10.0, order));
+        for (int mult = 1; mult <= 9; mult++) {
+            int val = base * mult;
+            if (val < n_steps) {
                 steps.push_back(val);
             }
         }
-    }
-    // Ensure n_steps is included
-    if (steps.empty() || steps.back() != n_steps) {
-        steps.push_back(n_steps);
     }
     return steps;
 }

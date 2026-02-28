@@ -74,9 +74,11 @@ void TransitionStateManager::flood_fill_ts(const std::vector<TSPoint>& ts_list,
     std::queue<int> queue;
     queue.push(start_idx);
     visited[start_idx] = true;
-    
-    group.cluster1_id = ts_list[start_idx].cluster1_id;
-    group.cluster2_id = ts_list[start_idx].cluster2_id;
+
+    // MATLAB organize_TS groups by (cluster1,cluster2) loop with cluster1<=cluster2.
+    // Keep a canonical ordering so downstream tunnel assignment and process direction match.
+    group.cluster1_id = std::min(ts_list[start_idx].cluster1_id, ts_list[start_idx].cluster2_id);
+    group.cluster2_id = std::max(ts_list[start_idx].cluster1_id, ts_list[start_idx].cluster2_id);
     group.min_energy = ts_list[start_idx].energy;
     group.min_coord = Coord3D(ts_list[start_idx].x,
                              ts_list[start_idx].y,

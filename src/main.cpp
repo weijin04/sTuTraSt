@@ -364,6 +364,7 @@ int main(int /* argc */, char** /* argv */) {
             
             // Extract basis sites from clusters involved in processes (MATLAB-compatible)
             std::vector<Coord3D> basis_sites;
+            std::vector<int> basis_tunnel_ids;
             for (int cluster_id : unique_cluster_ids) {
                 const Cluster& cluster = cluster_mgr->get_cluster(cluster_id);
                 if (!cluster.points.empty()) {
@@ -380,11 +381,13 @@ int main(int /* argc */, char** /* argv */) {
                     }
                     const auto& min_pt = cluster.points[min_idx];
                     basis_sites.push_back(Coord3D(min_pt.x, min_pt.y, min_pt.z));
+                    basis_tunnel_ids.push_back(cluster.tunnel_id);
                 }
             }
             
             // Create KMC simulator with grid info and BT for proper fitting range
-            KMC kmc(basis_sites, processes, T, ngrid, grid_size, BT);
+            KMC kmc(basis_sites, basis_tunnel_ids, processes, T, ngrid, grid_size,
+                    params.per_tunnel, BT);
             
             // Run simulations
             auto D_ave = kmc.run_multiple(params.n_runs, params.n_steps, 

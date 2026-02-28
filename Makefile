@@ -1,7 +1,7 @@
 # Makefile for TuTraSt C++ implementation
 # Simple wrapper around CMake for convenience
 
-.PHONY: all build clean install test help
+.PHONY: all build debug clean install test benchmark help
 
 BUILD_DIR = build
 BINARY = $(BUILD_DIR)/tutrast
@@ -33,17 +33,17 @@ install: build
 # Run a quick test
 test: build
 	@echo "Running test..."
-	@if [ -f grid.cube ] && [ -f input.param ]; then \
-		./$(BINARY); \
+	@if [ -f examples/basic/grid.cube ] && [ -f examples/basic/input.param ]; then \
+		cd examples/basic && ../../$(BINARY); \
 	else \
-		echo "Error: grid.cube or input.param not found"; \
+		echo "Error: examples/basic/grid.cube or examples/basic/input.param not found"; \
 		exit 1; \
 	fi
 
 # Run with timing
 benchmark: build
 	@echo "Running benchmark..."
-	@time ./$(BINARY)
+	@cd examples/basic && time ../../$(BINARY)
 
 # Display help
 help:
@@ -55,8 +55,8 @@ help:
 	@echo "  make debug     - Build the project (debug mode)"
 	@echo "  make clean     - Clean build artifacts and output files"
 	@echo "  make install   - Install system-wide (requires sudo)"
-	@echo "  make test      - Build and run a test"
-	@echo "  make benchmark - Build and run with timing"
+	@echo "  make test      - Build and run examples/basic"
+	@echo "  make benchmark - Time examples/basic run"
 	@echo "  make help      - Display this help message"
 	@echo ""
 	@echo "Requirements:"

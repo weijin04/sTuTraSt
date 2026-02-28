@@ -39,7 +39,6 @@ void TunnelManager::organize_tunnels(const std::vector<int>& tunnel_cluster,
                 break;
             }
         }
-
         if (!has_tunnel) continue;
 
         Tunnel tunnel;
@@ -62,7 +61,6 @@ void TunnelManager::organize_tunnels(const std::vector<int>& tunnel_cluster,
                 processed_tsgroups.insert(i);
             }
         }
-
         // Collect self_cross_dirs from tunnel_cluster
         for (int cluster_id : merge_group) {
             if (tc_lookup.count(cluster_id)) {

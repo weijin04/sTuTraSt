@@ -57,7 +57,7 @@ cd sTuTraSt
 
 ### Input Files
 
-The program requires two input files in the same directory where you run it:
+The program requires two input files in the directory where you run it:
 
 1. **grid.cube**: Potential energy grid file in cube format
    - Header lines with system information
@@ -84,8 +84,9 @@ The program requires two input files in the same directory where you run it:
 ### Running the Program
 
 ```bash
-# From the repository root (if not installed system-wide)
-./build/tutrast
+# Recommended: run the bundled example
+cd examples/basic
+../../build/tutrast
 
 # Or if installed system-wide
 tutrast
@@ -178,9 +179,9 @@ make
    ```
 
 4. **Input file errors**: Check that grid.cube and input.param are in the current directory
-   ```bash
-   ls -l grid.cube input.param
-   ```
+```bash
+ls -l grid.cube input.param
+```
 
 5. **Memory errors**: For very large grids, increase system swap space or reduce grid resolution
 

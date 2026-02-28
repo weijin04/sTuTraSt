@@ -3,6 +3,7 @@
 #include <iostream>
 #include <sstream>
 #include <cmath>
+#include <algorithm>
 
 double CubeParser::convert_energy(double energy, int from_unit) {
     // Convert to kJ/mol
@@ -90,6 +91,14 @@ bool CubeParser::parse(const std::string& filename, int energy_unit,
         std::cerr << "Error: insufficient cube data values, got " << raw_values.size()
                   << " expected " << total_points << std::endl;
         return false;
+    }
+
+    // Match MATLAB cube2xsfdat.m exactly:
+    // shift_cube_data = (cube_data - min(cube_data)) * conv2kJmol
+    // We already converted units while reading, so subtract the converted minimum here.
+    double min_raw = *std::min_element(raw_values.begin(), raw_values.end());
+    for (auto& v : raw_values) {
+        v -= min_raw;
     }
 
     // Match MATLAB cube2xsfdat.m exactly:

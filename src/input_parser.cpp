@@ -47,6 +47,8 @@ InputParams InputParser::parse(const std::string& filename) {
     params.plot_msd = (static_cast<int>(values[idx++]) == 1);
     params.n_steps = static_cast<int>(values[idx++]);
     params.print_every = static_cast<int>(values[idx++]);
+    // MATLAB input.param order:
+    // ... nsteps, print_every, nruns, n_particle, per_tunnel, ...
     params.n_runs = static_cast<int>(values[idx++]);
     params.n_particles = static_cast<int>(values[idx++]);
     params.per_tunnel = static_cast<int>(values[idx++]);

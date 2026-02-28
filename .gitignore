@@ -45,3 +45,13 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
+
+# Production / validation orchestration artifacts
+production/
+production_*/
+production_partial_optimal_*/
+verification_equivalence_*/
+archive/
+state/
+logs/
+*.log

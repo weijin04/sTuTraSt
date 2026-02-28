@@ -179,10 +179,6 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
     if (const char* env = std::getenv("TUTRAST_TRACE_QUPX21"); env && std::string(env) == "1") {
         trace_local = true;
     }
-    bool skip_temp_samecluster_ts = false;
-    if (const char* env = std::getenv("TUTRAST_SKIP_TEMP_SAMECLUSTER_TS"); env && std::string(env) == "1") {
-        skip_temp_samecluster_ts = true;
-    }
     auto in_trace_box = [&](int x, int y, int z) {
         // MATLAB 1-based local mismatch patch around level 21, converted to C++ 0-based.
         bool box1 = (x >= 27 && x <= 33 && y >= 9 && y <= 12 && z >= 68 && z <= 72);
@@ -244,18 +240,18 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
             // Neighbor info with cross vectors
             struct NeighborInfo {
                 Coord3D coord;
-                int cross_i, cross_j, cross_k;
+                int delta_i, delta_j, delta_k;
             };
             
             // MATLAB neighbor order: +k, -k, +j, -j, +i, -i
             // (from triple loop for l=1:3, m=4:6, n=7:9 with checkneighbor filter)
             std::vector<NeighborInfo> neighbors = {
-                {Coord3D(pt.x, pt.y, kp), pt.cross_i + cv.vals[0], pt.cross_j + cv.vals[3], pt.cross_k + cv.vals[7]},
-                {Coord3D(pt.x, pt.y, km), pt.cross_i + cv.vals[0], pt.cross_j + cv.vals[3], pt.cross_k + cv.vals[8]},
-                {Coord3D(pt.x, jp, pt.z), pt.cross_i + cv.vals[0], pt.cross_j + cv.vals[4], pt.cross_k + cv.vals[6]},
-                {Coord3D(pt.x, jm, pt.z), pt.cross_i + cv.vals[0], pt.cross_j + cv.vals[5], pt.cross_k + cv.vals[6]},
-                {Coord3D(ip, pt.y, pt.z), pt.cross_i + cv.vals[1], pt.cross_j + cv.vals[3], pt.cross_k + cv.vals[6]},
-                {Coord3D(im, pt.y, pt.z), pt.cross_i + cv.vals[2], pt.cross_j + cv.vals[3], pt.cross_k + cv.vals[6]}
+                {Coord3D(pt.x, pt.y, kp), cv.vals[0], cv.vals[3], cv.vals[7]},
+                {Coord3D(pt.x, pt.y, km), cv.vals[0], cv.vals[3], cv.vals[8]},
+                {Coord3D(pt.x, jp, pt.z), cv.vals[0], cv.vals[4], cv.vals[6]},
+                {Coord3D(pt.x, jm, pt.z), cv.vals[0], cv.vals[5], cv.vals[6]},
+                {Coord3D(ip, pt.y, pt.z), cv.vals[1], cv.vals[3], cv.vals[6]},
+                {Coord3D(im, pt.y, pt.z), cv.vals[2], cv.vals[3], cv.vals[6]}
             };
             
             for (const auto& nb_info : neighbors) {
@@ -266,6 +262,11 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                 }
 
                 const auto& nb = nb_info.coord;
+                // MATLAB computes crossi/crossj/crossk from the live cross_matrix for each neighbor.
+                // The host point cross vector can change mid-loop due to merges, so do not use cached pt.cross_*.
+                int nb_cross_i = grid_->cross_i(pt.x, pt.y, pt.z) + nb_info.delta_i;
+                int nb_cross_j = grid_->cross_j(pt.x, pt.y, pt.z) + nb_info.delta_j;
+                int nb_cross_k = grid_->cross_k(pt.x, pt.y, pt.z) + nb_info.delta_k;
                 int nb_level = grid_->level_at(nb.x, nb.y, nb.z);
                 int nb_cluster = grid_->minID_C(nb.x, nb.y, nb.z);
                 int nb_minID_L = grid_->minID_L(nb.x, nb.y, nb.z);
@@ -276,9 +277,9 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                         // Add to cluster
                         grid_->minID_L(nb.x, nb.y, nb.z) = level;
                         grid_->minID_C(nb.x, nb.y, nb.z) = cluster.id;
-                        grid_->cross_i(nb.x, nb.y, nb.z) = nb_info.cross_i;
-                        grid_->cross_j(nb.x, nb.y, nb.z) = nb_info.cross_j;
-                        grid_->cross_k(nb.x, nb.y, nb.z) = nb_info.cross_k;
+                        grid_->cross_i(nb.x, nb.y, nb.z) = nb_cross_i;
+                        grid_->cross_j(nb.x, nb.y, nb.z) = nb_cross_j;
+                        grid_->cross_k(nb.x, nb.y, nb.z) = nb_cross_k;
 
                         ClusterPoint new_pt;
                         new_pt.x = nb.x;
@@ -286,12 +287,10 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                         new_pt.z = nb.z;
                         new_pt.level = level;
                         new_pt.boundary = 1;
-                        new_pt.cross_i = nb_info.cross_i;
-                        new_pt.cross_j = nb_info.cross_j;
-                        new_pt.cross_k = nb_info.cross_k;
+                        new_pt.cross_i = nb_cross_i;
+                        new_pt.cross_j = nb_cross_j;
+                        new_pt.cross_k = nb_cross_k;
                         new_points.push_back(new_pt);
-
-                        still_boundary = true;
 
                         // Update cluster min energy
                         double e = grid_->energy_at(nb.x, nb.y, nb.z);
@@ -305,9 +304,9 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                 }
                 else if (nb_cluster == cluster.id) {
                     // Same cluster - check for tunnel (different cross vectors)
-                    int idiff = nb_info.cross_i - grid_->cross_i(nb.x, nb.y, nb.z);
-                    int jdiff = nb_info.cross_j - grid_->cross_j(nb.x, nb.y, nb.z);
-                    int kdiff = nb_info.cross_k - grid_->cross_k(nb.x, nb.y, nb.z);
+                    int idiff = nb_cross_i - grid_->cross_i(nb.x, nb.y, nb.z);
+                    int jdiff = nb_cross_j - grid_->cross_j(nb.x, nb.y, nb.z);
+                    int kdiff = nb_cross_k - grid_->cross_k(nb.x, nb.y, nb.z);
 
                     if (idiff != 0 || jdiff != 0 || kdiff != 0) {
                         // Found a tunnel - cluster wraps around periodic boundary
@@ -337,39 +336,19 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                                        cluster.id, cluster.id);
 
                             int ts_x, ts_y, ts_z;
-                            bool ts_is_temp_neighbor = false;
                             if (nb_energy >= pt_energy) {
                                 ts_x = nb.x; ts_y = nb.y; ts_z = nb.z;
                                 // MATLAB: find neighbor row in C_connect (same cluster), set info(line,6)=1
-                                bool marked = false;
                                 for (auto& cp : cluster.points) {
                                     if (cp.x == ts_x && cp.y == ts_y && cp.z == ts_z) {
                                         cp.ts_flag = 1;
-                                        marked = true;
                                         break;
-                                    }
-                                }
-                                // The neighbor may still be in this iteration's temp list (new_points),
-                                // which MATLAB stores in temp.info and can also mark as TS before append.
-                                if (!marked) {
-                                    for (auto& cp : new_points) {
-                                        if (cp.x == ts_x && cp.y == ts_y && cp.z == ts_z) {
-                                            cp.ts_flag = 1;
-                                            ts_is_temp_neighbor = true;
-                                            break;
-                                        }
                                     }
                                 }
                             } else {
                                 ts_x = pt.x; ts_y = pt.y; ts_z = pt.z;
                                 // MATLAB: set info(index_list,6)=1 on host point
                                 cluster.points[pi].ts_flag = 1;
-                            }
-
-                            // Experimental/debug switch: defer TS creation if the chosen TS point is still in
-                            // this iteration's temp list (MATLAB temp.info timing may differ here).
-                            if (skip_temp_samecluster_ts && ts_is_temp_neighbor) {
-                                continue;
                             }
 
                             TSPoint ts;
@@ -380,9 +359,9 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                             ts.level = grid_->level_at(ts_x, ts_y, ts_z);
                             ts.cluster1_id = cluster.id;
                             ts.cluster2_id = cluster.id;
-                            ts.cross_i = nb_info.cross_i;
-                            ts.cross_j = nb_info.cross_j;
-                            ts.cross_k = nb_info.cross_k;
+                            ts.cross_i = nb_cross_i;
+                            ts.cross_j = nb_cross_j;
+                            ts.cross_k = nb_cross_k;
                             ts.cross_diff_i = idiff;
                             ts.cross_diff_j = jdiff;
                             ts.cross_diff_k = kdiff;
@@ -405,9 +384,9 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                     double dE = std::min(dE_current, dE_connect);
 
                     // Check cross vector difference for tunnel detection
-                    int idiff = nb_info.cross_i - grid_->cross_i(nb.x, nb.y, nb.z);
-                    int jdiff = nb_info.cross_j - grid_->cross_j(nb.x, nb.y, nb.z);
-                    int kdiff = nb_info.cross_k - grid_->cross_k(nb.x, nb.y, nb.z);
+                    int idiff = nb_cross_i - grid_->cross_i(nb.x, nb.y, nb.z);
+                    int jdiff = nb_cross_j - grid_->cross_j(nb.x, nb.y, nb.z);
+                    int kdiff = nb_cross_k - grid_->cross_k(nb.x, nb.y, nb.z);
 
                     // MATLAB-compatible behavior:
                     // For different clusters, only count a tunnel vector when both clusters are
@@ -467,9 +446,9 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                             ts.level = grid_->level_at(ts_x, ts_y, ts_z);
                             ts.cluster1_id = std::min(cluster.id, nb_cluster);
                             ts.cluster2_id = std::max(cluster.id, nb_cluster);
-                            ts.cross_i = nb_info.cross_i;
-                            ts.cross_j = nb_info.cross_j;
-                            ts.cross_k = nb_info.cross_k;
+                            ts.cross_i = nb_cross_i;
+                            ts.cross_j = nb_cross_j;
+                            ts.cross_k = nb_cross_k;
                             // cross_diff is from cluster.id -> nb_cluster perspective
                             // If IDs were swapped (cluster.id > nb_cluster), negate to get cluster1 -> cluster2
                             if (cluster.id > nb_cluster) {
@@ -491,11 +470,9 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                         merge_only_merge_groups(cluster.id, nb_cluster, idiff, jdiff, kdiff);
                     }
 
-                    still_boundary = true;
                 }
                 else {
-                    // Other cases (higher level, etc.) - boundary
-                    still_boundary = true;
+                    // Assigned neighbor (any other case) does not mark boundary in MATLAB logic.
                 }
             }
 
@@ -554,6 +531,7 @@ void ClusterManager::merge_clusters(int cluster1_id, int cluster2_id,
                                     std::vector<TSPoint>& ts_list,
                                     std::vector<int>* tunnel_cluster,
                                     std::vector<TSPoint>* ts_list_all) {
+    (void)tunnel_cluster;
     std::cout << "    Merging clusters " << cluster2_id << " into " << cluster1_id 
               << " (cross diff: " << idiff << "," << jdiff << "," << kdiff << ")" << std::endl;
     
@@ -635,7 +613,7 @@ void ClusterManager::merge_clusters(int cluster1_id, int cluster2_id,
         // Neither in a group, create new merged group
         merge_groups_.push_back({cluster1_id, cluster2_id});
     }
-    
+
     // Transfer all points from cluster2 to cluster1
     c1->points.insert(c1->points.end(), c2->points.begin(), c2->points.end());
     
@@ -649,13 +627,8 @@ void ClusterManager::merge_clusters(int cluster1_id, int cluster2_id,
         grid_->minID_C(pt.x, pt.y, pt.z) = cluster1_id;
     }
 
-    // Keep tunnel_cluster IDs live across physical merges; MATLAB updates indices later on finC.
-    // Without this, tunnel_cluster can retain merged-away IDs and break tunnel reconstruction.
-    if (tunnel_cluster != nullptr) {
-        for (auto& tc : *tunnel_cluster) {
-            if (tc == cluster2_id) tc = cluster1_id;
-        }
-    }
+    // Intentionally do not rewrite tunnel_cluster IDs during physical merges.
+    // Final tunnel_cluster remapping is done after compacting clusters.
     
     // Mark cluster2 as removed
     c2->id = 0;
@@ -807,7 +780,6 @@ std::map<int, int> ClusterManager::compact_clusters(std::vector<TSPoint>& ts_lis
     
     // Replace clusters vector with compacted version
     clusters_ = valid_clusters;
-    
     // Update TS list cluster IDs
     for (auto& ts : ts_list_all) {
         if (id_mapping.find(ts.cluster1_id) != id_mapping.end()) {

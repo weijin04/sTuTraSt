@@ -56,6 +56,17 @@ if ! command -v g++ &> /dev/null && ! command -v clang++ &> /dev/null; then
     exit 1
 fi
 
+# Prefer a real compiler binary over ccache wrappers to avoid sandbox tmp issues.
+if [ -x /usr/bin/g++ ]; then
+    CXX_BIN="/usr/bin/g++"
+elif [ -x /usr/bin/clang++ ]; then
+    CXX_BIN="/usr/bin/clang++"
+elif command -v g++ &> /dev/null; then
+    CXX_BIN="$(command -v g++)"
+else
+    CXX_BIN="$(command -v clang++)"
+fi
+
 # Create build directory
 mkdir -p "$BUILD_DIR"
 
@@ -70,12 +81,12 @@ fi
 
 # Configure with CMake
 print_info "Configuring with CMake..."
-if ! cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=$BUILD_TYPE; then
+if ! cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_CXX_COMPILER="$CXX_BIN"; then
     print_error "CMake configuration failed!"
     print_info "Trying again with a clean build directory..."
     rm -rf "$BUILD_DIR"
     mkdir -p "$BUILD_DIR"
-    if ! cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=$BUILD_TYPE; then
+    if ! cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_CXX_COMPILER="$CXX_BIN"; then
         print_error "CMake configuration failed even after cleaning!"
         exit 1
     fi

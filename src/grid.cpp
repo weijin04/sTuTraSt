@@ -23,6 +23,19 @@ Grid::Grid(const std::array<int, 3>& dimensions)
 
 void Grid::initialize(const std::vector<std::vector<double>>& pot_data,
                      double energy_step, double energy_cutoff) {
+    // MATLAB first does:
+    //   pot_data(pot_data==max(pot_data)) = 10*cutoff;
+    //   pot_data(isinf(pot_data)) = 10*cutoff;
+    // before building E_matrix.
+    // This matters when pot_data contains Inf: max(pot_data) is Inf, so only Inf entries
+    // are replaced, and finite maxima must be preserved.
+    double raw_max = -std::numeric_limits<double>::infinity();
+    for (const auto& row : pot_data) {
+        for (double v : row) {
+            if (v > raw_max) raw_max = v;
+        }
+    }
+
     // Convert pot_data to E_matrix.
     // pot_data is already reordered in CubeParser to match MATLAB cube2xsfdat.m output,
     // and TuTraSt_main.m consumes it with z->y->x loops.
@@ -43,10 +56,9 @@ void Grid::initialize(const std::vector<std::vector<double>>& pot_data,
                 }
                 
                 double energy = pot_data[row_ind][col_ind];
-                
-                // Match MATLAB behavior: only sanitize inf here.
-                // High-energy finite values are handled by the later "replace max value" step.
-                if (std::isinf(energy)) {
+
+                // Match MATLAB preprocessing order on pot_data.
+                if (energy == raw_max || std::isinf(energy)) {
                     energy = 10 * energy_cutoff;
                 }
                 
@@ -68,15 +80,6 @@ void Grid::initialize(const std::vector<std::vector<double>>& pot_data,
         std::cout << E_matrix_[i] << " ";
     }
     std::cout << std::endl;
-    
-    // Replace max values
-    for (size_t i = 0; i < E_matrix_.size(); i++) {
-        if (E_matrix_[i] == max_energy_) {
-            E_matrix_[i] = 10 * energy_cutoff;
-        }
-    }
-    
-    max_energy_ = *std::max_element(E_matrix_.begin(), E_matrix_.end());
     
     // Calculate level scaling
     double nlevel = (max_energy_ - min_energy_) / energy_step;

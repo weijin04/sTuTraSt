@@ -28,6 +28,18 @@ cd examples/basic
 ../../build/tutrast
 ```
 
+## C++ mkgrid (v10, auto-expand)
+Build creates a second binary:
+- `build/generate_pes_grid_v10_cpp`
+
+Example:
+```bash
+cd /home/sun07ao/xekr/makegrid
+/home/sun07ao/xekr/sTuTraSt/build/generate_pes_grid_v10_cpp \
+  /path/to/xxx.cif /path/to/grid.cube \
+  --probe Xe --spacing 0.2 --cutoff 12.8 --n_jobs 16 --cell_preexpand auto
+```
+
 Expected key outputs (written in current directory):
 - `basis.dat`
 - `processes_<T>.dat`

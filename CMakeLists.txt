@@ -44,5 +44,16 @@ target_include_directories(tutrast PRIVATE include)
 # Link math library
 target_link_libraries(tutrast m)
 
+# Optional OpenMP for accelerated grid generation
+find_package(OpenMP)
+
+# v10-aligned PES grid generator (C++)
+add_executable(generate_pes_grid_v10_cpp src/pes_grid_v10_cpp.cpp)
+target_include_directories(generate_pes_grid_v10_cpp PRIVATE include)
+target_link_libraries(generate_pes_grid_v10_cpp m)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(generate_pes_grid_v10_cpp OpenMP::OpenMP_CXX)
+endif()
+
 # Installation
 install(TARGETS tutrast DESTINATION bin)

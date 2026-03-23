@@ -89,7 +89,7 @@ bool CubeParser::parse(const std::string& filename, int energy_unit,
 
     if (static_cast<int>(raw_values.size()) < total_points) {
         std::cerr << "Error: insufficient cube data values, got " << raw_values.size()
-                  << " expected " << total_points << std::endl;
+                  << " expected " << total_points << '\n';
         return false;
     }
 
@@ -124,10 +124,10 @@ bool CubeParser::parse(const std::string& filename, int energy_unit,
     
     file.close();
     
-    std::cout << "Loaded cube file:" << std::endl;
-    std::cout << "  Grid dimensions: " << nx << " x " << ny << " x " << nz << std::endl;
+    std::cout << "Loaded cube file:" << '\n';
+    std::cout << "  Grid dimensions: " << nx << " x " << ny << " x " << nz << '\n';
     std::cout << "  Grid size: " << grid_size[0] << " x " 
-              << grid_size[1] << " x " << grid_size[2] << " Angstrom" << std::endl;
+              << grid_size[1] << " x " << grid_size[2] << " Angstrom" << '\n';
     
     return true;
 }

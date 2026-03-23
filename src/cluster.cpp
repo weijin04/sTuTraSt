@@ -6,6 +6,7 @@
 #include <map>
 #include <cstdlib>
 #include <string>
+#include <unordered_set>
 
 ClusterManager::ClusterManager(std::shared_ptr<Grid> grid)
     : grid_(grid), next_cluster_id_(1) {
@@ -18,20 +19,22 @@ void ClusterManager::initiate_clusters(int level) {
     int clusters_added = 0;
     int candidates_checked = 0;
     int candidates_skipped = 0;
-    
-    // Debug: count total points at this level
-    int total_at_level = 0;
-    for (int z = 0; z < grid_->nz(); z++) {
-        for (int y = 0; y < grid_->ny(); y++) {
-            for (int x = 0; x < grid_->nx(); x++) {
-                if (grid_->level_at(x, y, z) == level) {
-                    total_at_level++;
+
+    // 3E: Guard debug grid scan - only run when TUTRAST_DEBUG_VERBOSE=1
+    if (const char* env = std::getenv("TUTRAST_DEBUG_VERBOSE"); env && std::string(env) == "1") {
+        int total_at_level = 0;
+        for (int z = 0; z < grid_->nz(); z++) {
+            for (int y = 0; y < grid_->ny(); y++) {
+                for (int x = 0; x < grid_->nx(); x++) {
+                    if (grid_->level_at(x, y, z) == level) {
+                        total_at_level++;
+                    }
                 }
             }
         }
+        std::cout << "  Total points at level " << level << ": " << total_at_level << '\n';
     }
-    std::cout << "  Total points at level " << level << ": " << total_at_level << std::endl;
-    
+
     for (int z = 0; z < grid_->nz(); z++) {
         for (int y = 0; y < grid_->ny(); y++) {
             for (int x = 0; x < grid_->nx(); x++) {
@@ -40,96 +43,97 @@ void ClusterManager::initiate_clusters(int level) {
                 // - minID_L tracks the level at which a point was first assigned
                 // - minID_C tracks the cluster ID
                 // - We check minID_L here because we want points never assigned at any level
-                if (grid_->level_at(x, y, z) == level && 
+                if (grid_->level_at(x, y, z) == level &&
                     grid_->minID_L(x, y, z) == 0) {
-                    
+
                     candidates_checked++;
-                    
+
                     // Check if all 6 neighbors have minID_L == 0
                     int ip, im, jp, jm, kp, km;
                     CrossVector cv;
-                    PBC::apply(x, y, z, 
+                    PBC::apply(x, y, z,
                               grid_->nx(), grid_->ny(), grid_->nz(),
                               ip, im, jp, jm, kp, km, cv);
-                    
-                    bool all_neighbors_unassigned = 
+
+                    bool all_neighbors_unassigned =
                         (grid_->minID_L(ip, y, z) == 0) &&
                         (grid_->minID_L(im, y, z) == 0) &&
                         (grid_->minID_L(x, jp, z) == 0) &&
                         (grid_->minID_L(x, jm, z) == 0) &&
                         (grid_->minID_L(x, y, kp) == 0) &&
                         (grid_->minID_L(x, y, km) == 0);
-                    
+
                     if (!all_neighbors_unassigned) {
                         candidates_skipped++;
                         continue;  // Skip this point - it will be added during cluster growth
                     }
-                    
+
                     // Start new cluster with flood fill
                     Cluster new_cluster;
                     new_cluster.id = next_cluster_id_++;
                     new_cluster.min_energy = grid_->energy_at(x, y, z);
-                    
+
                     std::queue<Coord3D> queue;
                     queue.push(Coord3D(x, y, z));
-                    grid_->minID_L(x, y, z) = level;  // Set level assignment
+                    grid_->minID_L(x, y, z) = static_cast<int16_t>(level);  // Set level assignment
                     grid_->minID_C(x, y, z) = new_cluster.id;  // Set cluster assignment
                     // Initialize cross vector for first point
                     grid_->cross_i(x, y, z) = 0;
                     grid_->cross_j(x, y, z) = 0;
                     grid_->cross_k(x, y, z) = 0;
-                    
+
                     int cluster_size = 0;
                     while (!queue.empty()) {
                         Coord3D curr = queue.front();
                         queue.pop();
-                        
+
                         ClusterPoint pt;
-                        pt.x = curr.x;
-                        pt.y = curr.y;
-                        pt.z = curr.z;
-                        pt.level = level;
+                        pt.x = static_cast<int16_t>(curr.x);
+                        pt.y = static_cast<int16_t>(curr.y);
+                        pt.z = static_cast<int16_t>(curr.z);
+                        pt.level = static_cast<int16_t>(level);
                         pt.boundary = 1;  // Initially all are boundary
                         pt.cross_i = grid_->cross_i(curr.x, curr.y, curr.z);
                         pt.cross_j = grid_->cross_j(curr.x, curr.y, curr.z);
                         pt.cross_k = grid_->cross_k(curr.x, curr.y, curr.z);
                         new_cluster.points.push_back(pt);
                         cluster_size++;
-                        
+
                         // Update min energy
                         double e = grid_->energy_at(curr.x, curr.y, curr.z);
                         if (e < new_cluster.min_energy) {
                             new_cluster.min_energy = e;
                         }
-                        
+
                         // Check 6-connected neighbors
-                        int ip, im, jp, jm, kp, km;
-                        CrossVector cv;
-                        PBC::apply(curr.x, curr.y, curr.z, 
+                        int ip2, im2, jp2, jm2, kp2, km2;
+                        CrossVector cv2;
+                        PBC::apply(curr.x, curr.y, curr.z,
                                   grid_->nx(), grid_->ny(), grid_->nz(),
-                                  ip, im, jp, jm, kp, km, cv);
-                        
+                                  ip2, im2, jp2, jm2, kp2, km2, cv2);
+
                         // Get current point's cross vector
                         int curr_cross_i = grid_->cross_i(curr.x, curr.y, curr.z);
                         int curr_cross_j = grid_->cross_j(curr.x, curr.y, curr.z);
                         int curr_cross_k = grid_->cross_k(curr.x, curr.y, curr.z);
-                        
+
                         // Check neighbors with proper cross vector assignment
                         // cv.vals indices: 0=x, 1=ip, 2=im, 3=y, 4=jp, 5=jm, 6=z, 7=kp, 8=km
+                        // 3D: Replace std::vector<NeighborInfo> with fixed-size array[6]
                         struct NeighborInfo {
                             Coord3D coord;
                             int cross_i, cross_j, cross_k;
                         };
-                        
-                        std::vector<NeighborInfo> neighbors = {
-                            {Coord3D(ip, curr.y, curr.z), curr_cross_i + cv.vals[1], curr_cross_j + cv.vals[3], curr_cross_k + cv.vals[6]},  // ip
-                            {Coord3D(im, curr.y, curr.z), curr_cross_i + cv.vals[2], curr_cross_j + cv.vals[3], curr_cross_k + cv.vals[6]},  // im
-                            {Coord3D(curr.x, jp, curr.z), curr_cross_i + cv.vals[0], curr_cross_j + cv.vals[4], curr_cross_k + cv.vals[6]},  // jp
-                            {Coord3D(curr.x, jm, curr.z), curr_cross_i + cv.vals[0], curr_cross_j + cv.vals[5], curr_cross_k + cv.vals[6]},  // jm
-                            {Coord3D(curr.x, curr.y, kp), curr_cross_i + cv.vals[0], curr_cross_j + cv.vals[3], curr_cross_k + cv.vals[7]},  // kp
-                            {Coord3D(curr.x, curr.y, km), curr_cross_i + cv.vals[0], curr_cross_j + cv.vals[3], curr_cross_k + cv.vals[8]}   // km
+
+                        NeighborInfo neighbors[6] = {
+                            {Coord3D(ip2, curr.y, curr.z), curr_cross_i + cv2.vals[1], curr_cross_j + cv2.vals[3], curr_cross_k + cv2.vals[6]},  // ip
+                            {Coord3D(im2, curr.y, curr.z), curr_cross_i + cv2.vals[2], curr_cross_j + cv2.vals[3], curr_cross_k + cv2.vals[6]},  // im
+                            {Coord3D(curr.x, jp2, curr.z), curr_cross_i + cv2.vals[0], curr_cross_j + cv2.vals[4], curr_cross_k + cv2.vals[6]},  // jp
+                            {Coord3D(curr.x, jm2, curr.z), curr_cross_i + cv2.vals[0], curr_cross_j + cv2.vals[5], curr_cross_k + cv2.vals[6]},  // jm
+                            {Coord3D(curr.x, curr.y, kp2), curr_cross_i + cv2.vals[0], curr_cross_j + cv2.vals[3], curr_cross_k + cv2.vals[7]},  // kp
+                            {Coord3D(curr.x, curr.y, km2), curr_cross_i + cv2.vals[0], curr_cross_j + cv2.vals[3], curr_cross_k + cv2.vals[8]}   // km
                         };
-                        
+
                         for (const auto& nb_info : neighbors) {
                             const auto& nb = nb_info.coord;
                             // Match MATLAB logic: check minID_L==0 FIRST, then level
@@ -137,12 +141,12 @@ void ClusterManager::initiate_clusters(int level) {
                             // If unassigned and same level, add to cluster
                             if (grid_->minID_L(nb.x, nb.y, nb.z) == 0) {
                                 if (grid_->level_at(nb.x, nb.y, nb.z) == level) {
-                                    grid_->minID_L(nb.x, nb.y, nb.z) = level;  // Set level
+                                    grid_->minID_L(nb.x, nb.y, nb.z) = static_cast<int16_t>(level);  // Set level
                                     grid_->minID_C(nb.x, nb.y, nb.z) = new_cluster.id;  // Set cluster
                                     // Set cross vector for neighbor
-                                    grid_->cross_i(nb.x, nb.y, nb.z) = nb_info.cross_i;
-                                    grid_->cross_j(nb.x, nb.y, nb.z) = nb_info.cross_j;
-                                    grid_->cross_k(nb.x, nb.y, nb.z) = nb_info.cross_k;
+                                    grid_->cross_i(nb.x, nb.y, nb.z) = static_cast<int8_t>(nb_info.cross_i);
+                                    grid_->cross_j(nb.x, nb.y, nb.z) = static_cast<int8_t>(nb_info.cross_j);
+                                    grid_->cross_k(nb.x, nb.y, nb.z) = static_cast<int8_t>(nb_info.cross_k);
                                     queue.push(nb);
                                 }
                                 // else: neighbor is unassigned but at different level
@@ -150,21 +154,26 @@ void ClusterManager::initiate_clusters(int level) {
                             }
                         }
                     }
-                    
+
                     if (cluster_size > 0) {
                         clusters_.push_back(new_cluster);
+                        // 3A: Update cluster_index_ hash map after push_back
+                        cluster_index_[new_cluster.id] = clusters_.size() - 1;
                         init_merge_group(new_cluster.id);  // Initialize merge group
                         clusters_added++;
-                        std::cout << "    Cluster " << new_cluster.id << ": " << cluster_size << " points" << std::endl;
+                        // 3E: Guard per-cluster debug print
+                        if (const char* env = std::getenv("TUTRAST_DEBUG_VERBOSE"); env && std::string(env) == "1") {
+                            std::cout << "    Cluster " << new_cluster.id << ": " << cluster_size << " points" << '\n';
+                        }
                     }
                 }
             }
         }
     }
     if (clusters_added > 0 || candidates_checked > 0) {
-        std::cout << "  Initiated " << clusters_added << " new cluster(s) at this level" << std::endl;
+        std::cout << "  Initiated " << clusters_added << " new cluster(s) at this level" << '\n';
         if (candidates_checked > 0) {
-            std::cout << "    (checked " << candidates_checked << " candidates, skipped " << candidates_skipped << ")" << std::endl;
+            std::cout << "    (checked " << candidates_checked << " candidates, skipped " << candidates_skipped << ")" << '\n';
         }
     }
 }
@@ -195,8 +204,12 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                   << " nb=(" << (nb.x + 1) << "," << (nb.y + 1) << "," << (nb.z + 1) << ")"
                   << " cid=(" << cid1 << "," << cid2 << ")"
                   << " E=(" << pt_energy << "," << nb_energy << ")"
-                  << " dE=" << dE << std::endl;
+                  << " dE=" << dE << '\n';
     };
+
+    // 3C: Build a local hash set for O(1) tunnel_cluster membership check
+    std::unordered_set<int> tunnel_cluster_set(tunnel_cluster.begin(), tunnel_cluster.end());
+
     // MATLAB uses a per-cluster `filled` flag: clusters that fail to grow in one pass
     // are not revisited later in the same level.
     std::vector<int> filled(clusters_.size(), 0);
@@ -206,7 +219,7 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
     while (true) {
         bool any_growth = false;
         bool all_filled = true;
-        
+
         // Grow each existing cluster
         for (size_t ci = 0; ci < clusters_.size(); ++ci) {
             auto& cluster = clusters_[ci];
@@ -218,7 +231,7 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                 continue;
             }
             all_filled = false;
-            
+
             std::vector<ClusterPoint> new_points;
 
         // Check boundary points (use index-based loop and copy point data
@@ -233,19 +246,20 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
             bool still_boundary = false;
             int ip, im, jp, jm, kp, km;
             CrossVector cv;
-            PBC::apply(pt.x, pt.y, pt.z, 
+            PBC::apply(pt.x, pt.y, pt.z,
                       grid_->nx(), grid_->ny(), grid_->nz(),
                       ip, im, jp, jm, kp, km, cv);
-            
+
             // Neighbor info with cross vectors
             struct NeighborInfo {
                 Coord3D coord;
                 int delta_i, delta_j, delta_k;
             };
-            
+
             // MATLAB neighbor order: +k, -k, +j, -j, +i, -i
             // (from triple loop for l=1:3, m=4:6, n=7:9 with checkneighbor filter)
-            std::vector<NeighborInfo> neighbors = {
+            // 3D: Replace std::vector<NeighborInfo> with fixed-size array[6]
+            NeighborInfo neighbors[6] = {
                 {Coord3D(pt.x, pt.y, kp), cv.vals[0], cv.vals[3], cv.vals[7]},
                 {Coord3D(pt.x, pt.y, km), cv.vals[0], cv.vals[3], cv.vals[8]},
                 {Coord3D(pt.x, jp, pt.z), cv.vals[0], cv.vals[4], cv.vals[6]},
@@ -253,7 +267,7 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                 {Coord3D(ip, pt.y, pt.z), cv.vals[1], cv.vals[3], cv.vals[6]},
                 {Coord3D(im, pt.y, pt.z), cv.vals[2], cv.vals[3], cv.vals[6]}
             };
-            
+
             for (const auto& nb_info : neighbors) {
                 // MATLAB checks TS_matrix(i,j,k)==0 inside the neighbor loop.
                 // If host becomes TS during this scan, remaining neighbors are skipped.
@@ -275,21 +289,21 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                     // Unassigned neighbor - check if same level to grow
                     if (nb_level == level) {
                         // Add to cluster
-                        grid_->minID_L(nb.x, nb.y, nb.z) = level;
+                        grid_->minID_L(nb.x, nb.y, nb.z) = static_cast<int16_t>(level);
                         grid_->minID_C(nb.x, nb.y, nb.z) = cluster.id;
-                        grid_->cross_i(nb.x, nb.y, nb.z) = nb_cross_i;
-                        grid_->cross_j(nb.x, nb.y, nb.z) = nb_cross_j;
-                        grid_->cross_k(nb.x, nb.y, nb.z) = nb_cross_k;
+                        grid_->cross_i(nb.x, nb.y, nb.z) = static_cast<int8_t>(nb_cross_i);
+                        grid_->cross_j(nb.x, nb.y, nb.z) = static_cast<int8_t>(nb_cross_j);
+                        grid_->cross_k(nb.x, nb.y, nb.z) = static_cast<int8_t>(nb_cross_k);
 
                         ClusterPoint new_pt;
-                        new_pt.x = nb.x;
-                        new_pt.y = nb.y;
-                        new_pt.z = nb.z;
-                        new_pt.level = level;
+                        new_pt.x = static_cast<int16_t>(nb.x);
+                        new_pt.y = static_cast<int16_t>(nb.y);
+                        new_pt.z = static_cast<int16_t>(nb.z);
+                        new_pt.level = static_cast<int16_t>(level);
                         new_pt.boundary = 1;
-                        new_pt.cross_i = nb_cross_i;
-                        new_pt.cross_j = nb_cross_j;
-                        new_pt.cross_k = nb_cross_k;
+                        new_pt.cross_i = static_cast<int8_t>(nb_cross_i);
+                        new_pt.cross_j = static_cast<int8_t>(nb_cross_j);
+                        new_pt.cross_k = static_cast<int8_t>(nb_cross_k);
                         new_points.push_back(new_pt);
 
                         // Update cluster min energy
@@ -312,15 +326,9 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                         // Found a tunnel - cluster wraps around periodic boundary
                         tunnel_list.push_back({idiff, jdiff, kdiff});
 
-                        // Add to tunnel_cluster if not already there
-                        bool found = false;
-                        for (int tc : tunnel_cluster) {
-                            if (tc == cluster.id) {
-                                found = true;
-                                break;
-                            }
-                        }
-                        if (!found) {
+                        // 3C: O(1) membership check via hash set
+                        if (tunnel_cluster_set.find(cluster.id) == tunnel_cluster_set.end()) {
+                            tunnel_cluster_set.insert(cluster.id);
                             tunnel_cluster.push_back(cluster.id);
                             tunnel_cluster_dim.push_back({idiff, jdiff, kdiff});
                         }
@@ -396,14 +404,9 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                     bool same_merge_group = (group_current >= 0 && group_current == group_connect);
                     if ((idiff != 0 || jdiff != 0 || kdiff != 0) && same_merge_group) {
                         tunnel_list.push_back({idiff, jdiff, kdiff});
-                        bool found = false;
-                        for (int tc : tunnel_cluster) {
-                            if (tc == cluster.id) {
-                                found = true;
-                                break;
-                            }
-                        }
-                        if (!found) {
+                        // 3C: O(1) membership check via hash set
+                        if (tunnel_cluster_set.find(cluster.id) == tunnel_cluster_set.end()) {
+                            tunnel_cluster_set.insert(cluster.id);
                             tunnel_cluster.push_back(cluster.id);
                             tunnel_cluster_dim.push_back({idiff, jdiff, kdiff});
                         }
@@ -414,6 +417,12 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
                         trace_pair("merge", pt, nb, pt_energy, nb_energy, dE, cluster.id, nb_cluster);
                         merge_clusters(cluster.id, nb_cluster, idiff, jdiff, kdiff, ts_list,
                                        &tunnel_cluster, ts_list_all);
+                        // Keep tunnel_cluster_set in sync after merge (nb_cluster may have been
+                        // merged into cluster.id; cluster.id inherits its tunnel membership)
+                        if (tunnel_cluster_set.count(nb_cluster)) {
+                            tunnel_cluster_set.erase(nb_cluster);
+                            tunnel_cluster_set.insert(cluster.id);
+                        }
                     } else {
                         // Create transition state
                         // MATLAB line 184/202: both host AND neighbor must be unmarked
@@ -478,11 +487,11 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
 
             cluster.points[pi].boundary = still_boundary ? 1 : 0;
         }
-        
+
         // Add new points to cluster
         if (!new_points.empty()) {
             any_growth = true;  // Mark that growth happened
-            cluster.points.insert(cluster.points.end(), 
+            cluster.points.insert(cluster.points.end(),
                                  new_points.begin(), new_points.end());
         } else {
             filled[ci] = 1;
@@ -503,58 +512,50 @@ void ClusterManager::grow_clusters(int level, std::vector<TSPoint>& ts_list,
 }
 
 void ClusterManager::init_merge_group(int cluster_id) {
-    // Check if cluster already in a merge group
-    for (const auto& group : merge_groups_) {
-        for (int cid : group) {
-            if (cid == cluster_id) {
-                return;  // Already in a group
-            }
-        }
-    }
+    // 3B: O(1) check via hash map
+    if (cluster_to_merge_group_.count(cluster_id)) return;
     // Create new merge group with just this cluster
     merge_groups_.push_back({cluster_id});
+    cluster_to_merge_group_[cluster_id] = static_cast<int>(merge_groups_.size()) - 1;
 }
 
 int ClusterManager::find_merge_group(int cluster_id) {
-    for (size_t i = 0; i < merge_groups_.size(); i++) {
-        for (int cid : merge_groups_[i]) {
-            if (cid == cluster_id) {
-                return static_cast<int>(i);
-            }
-        }
-    }
-    return -1;
+    // 3B: O(1) lookup via hash map
+    auto it = cluster_to_merge_group_.find(cluster_id);
+    return (it != cluster_to_merge_group_.end()) ? it->second : -1;
 }
 
-void ClusterManager::merge_clusters(int cluster1_id, int cluster2_id, 
+void ClusterManager::merge_clusters(int cluster1_id, int cluster2_id,
                                     int idiff, int jdiff, int kdiff,
                                     std::vector<TSPoint>& ts_list,
                                     std::vector<int>* tunnel_cluster,
                                     std::vector<TSPoint>* ts_list_all) {
     (void)tunnel_cluster;
-    std::cout << "    Merging clusters " << cluster2_id << " into " << cluster1_id 
-              << " (cross diff: " << idiff << "," << jdiff << "," << kdiff << ")" << std::endl;
-    
-    // Find the clusters
+    std::cout << "    Merging clusters " << cluster2_id << " into " << cluster1_id
+              << " (cross diff: " << idiff << "," << jdiff << "," << kdiff << ")" << '\n';
+
+    // 3A: Find clusters via O(1) hash map lookup
     Cluster* c1 = nullptr;
     Cluster* c2 = nullptr;
-    for (auto& cluster : clusters_) {
-        if (cluster.id == cluster1_id) c1 = &cluster;
-        if (cluster.id == cluster2_id) c2 = &cluster;
+    {
+        auto it1 = cluster_index_.find(cluster1_id);
+        auto it2 = cluster_index_.find(cluster2_id);
+        if (it1 != cluster_index_.end()) c1 = &clusters_[it1->second];
+        if (it2 != cluster_index_.end()) c2 = &clusters_[it2->second];
     }
-    
+
     if (!c1 || !c2) {
         std::cerr << "Error: Clusters not found for merge" << std::endl;
         return;
     }
-    
+
     // Find merge groups
     int group1 = find_merge_group(cluster1_id);
     int group2 = find_merge_group(cluster2_id);
-    
+
     // Check if clusters are already in same merge group
     bool same_group = (group1 >= 0 && group1 == group2);
-    
+
     // If cross vectors differ and not same group, need to update cross vectors
     if ((idiff != 0 || jdiff != 0 || kdiff != 0) && !same_group) {
         // Update cross vectors for all points in cluster2's merge group
@@ -564,24 +565,23 @@ void ClusterManager::merge_clusters(int cluster1_id, int cluster2_id,
         } else {
             clusters_to_update = {cluster2_id};
         }
-        
+
         for (int cid : clusters_to_update) {
-            for (auto& cluster : clusters_) {
-                if (cluster.id == cid) {
-                    for (auto& pt : cluster.points) {
-                        grid_->cross_i(pt.x, pt.y, pt.z) += idiff;
-                        grid_->cross_j(pt.x, pt.y, pt.z) += jdiff;
-                        grid_->cross_k(pt.x, pt.y, pt.z) += kdiff;
-                        pt.cross_i += idiff;
-                        pt.cross_j += jdiff;
-                        pt.cross_k += kdiff;
-                    }
-                    break;
+            auto it = cluster_index_.find(cid);
+            if (it != cluster_index_.end()) {
+                auto& cluster = clusters_[it->second];
+                for (auto& pt : cluster.points) {
+                    grid_->cross_i(pt.x, pt.y, pt.z) += idiff;
+                    grid_->cross_j(pt.x, pt.y, pt.z) += jdiff;
+                    grid_->cross_k(pt.x, pt.y, pt.z) += kdiff;
+                    pt.cross_i = static_cast<int8_t>(pt.cross_i + idiff);
+                    pt.cross_j = static_cast<int8_t>(pt.cross_j + jdiff);
+                    pt.cross_k = static_cast<int8_t>(pt.cross_k + kdiff);
                 }
             }
         }
     }
-    
+
     // Merge-group bookkeeping (match MATLAB check_neighbors.m):
     // - If both clusters are already in the same merge group, remove cluster2 from that group.
     // - If in different groups, merge groups.
@@ -589,39 +589,78 @@ void ClusterManager::merge_clusters(int cluster1_id, int cluster2_id,
     if (group1 >= 0 && group2 >= 0 && group1 == group2) {
         auto& g = merge_groups_[group1];
         g.erase(std::remove(g.begin(), g.end(), cluster2_id), g.end());
+        // 3B: Remove cluster2 from hash map (it's now merged away)
+        cluster_to_merge_group_.erase(cluster2_id);
     } else if (group1 >= 0 && group2 >= 0 && group1 != group2) {
         // MATLAB semantics: merge into the lower group index, then remove the higher
         // by moving the last group into its slot (not stable erase).
         int low = std::min(group1, group2);
         int high = std::max(group1, group2);
+
+        // 3B: Update all entries from group high to point to low
+        for (int cid : merge_groups_[high]) {
+            cluster_to_merge_group_[cid] = low;
+        }
         merge_groups_[low].insert(merge_groups_[low].end(),
                                   merge_groups_[high].begin(),
                                   merge_groups_[high].end());
 
         int last = static_cast<int>(merge_groups_.size()) - 1;
         if (high != last) {
+            // 3B: Update all entries that pointed to last to now point to high
+            for (int cid : merge_groups_[last]) {
+                cluster_to_merge_group_[cid] = high;
+            }
             merge_groups_[high] = merge_groups_[last];
         }
         merge_groups_.pop_back();
+
+        // 3B: Remove cluster2 from hash map (it's now merged into cluster1)
+        cluster_to_merge_group_.erase(cluster2_id);
     } else if (group1 >= 0 && group2 < 0) {
         // Add cluster2 to group1
         merge_groups_[group1].push_back(cluster2_id);
+        // 3B: Update hash map
+        cluster_to_merge_group_[cluster2_id] = group1;
+        // Now erase cluster2 since it's being merged away
+        cluster_to_merge_group_.erase(cluster2_id);
     } else if (group1 < 0 && group2 >= 0) {
         // Add cluster1 to group2
         merge_groups_[group2].push_back(cluster1_id);
+        // 3B: Update hash map
+        cluster_to_merge_group_[cluster1_id] = group2;
+        // Now erase cluster2 since it's being merged away
+        cluster_to_merge_group_.erase(cluster2_id);
     } else {
         // Neither in a group, create new merged group
         merge_groups_.push_back({cluster1_id, cluster2_id});
+        int new_idx = static_cast<int>(merge_groups_.size()) - 1;
+        // 3B: Update hash map for both
+        cluster_to_merge_group_[cluster1_id] = new_idx;
+        // cluster2 is being merged away, don't add to map
+    }
+
+    // Re-fetch pointers after possible reallocation from merge group ops
+    {
+        auto it1 = cluster_index_.find(cluster1_id);
+        auto it2 = cluster_index_.find(cluster2_id);
+        if (it1 != cluster_index_.end()) c1 = &clusters_[it1->second];
+        if (it2 != cluster_index_.end()) c2 = &clusters_[it2->second];
+    }
+
+    if (!c1 || !c2) {
+        std::cerr << "Error: Clusters not found after merge group ops" << std::endl;
+        return;
     }
 
     // Transfer all points from cluster2 to cluster1
     c1->points.insert(c1->points.end(), c2->points.begin(), c2->points.end());
-    
+
     // Update min energy
     if (c2->min_energy < c1->min_energy) {
         c1->min_energy = c2->min_energy;
     }
-    
+
     // Update minID_matrix for all cluster2 points
     for (const auto& pt : c2->points) {
         grid_->minID_C(pt.x, pt.y, pt.z) = cluster1_id;
@@ -629,11 +668,13 @@ void ClusterManager::merge_clusters(int cluster1_id, int cluster2_id,
 
     // Intentionally do not rewrite tunnel_cluster IDs during physical merges.
     // Final tunnel_cluster remapping is done after compacting clusters.
-    
-    // Mark cluster2 as removed
+
+    // Mark cluster2 as removed and remove from cluster_index_
     c2->id = 0;
     c2->points.clear();
-    
+    // 3A: Remove c2 from cluster_index_
+    cluster_index_.erase(cluster2_id);
+
     auto remap_and_prune_ts = [this, cluster1_id, cluster2_id](std::vector<TSPoint>& vec) {
         for (auto& ts : vec) {
             if (ts.cluster1_id == cluster2_id) {
@@ -664,16 +705,16 @@ void ClusterManager::merge_clusters(int cluster1_id, int cluster2_id,
     }
 }
 
-void ClusterManager::merge_only_merge_groups(int cluster1_id, int cluster2_id, 
+void ClusterManager::merge_only_merge_groups(int cluster1_id, int cluster2_id,
                                              int idiff, int jdiff, int kdiff) {
     // This function merges merge groups WITHOUT merging the actual clusters
     // This matches MATLAB behavior where clusters connected by TS (dE >= energy_step)
     // are kept separate but their merge groups are combined
-    
+
     // Find merge groups
     int group1 = find_merge_group(cluster1_id);
     int group2 = find_merge_group(cluster2_id);
-    
+
     // If clusters not in any merge group, initialize them
     if (group1 < 0) {
         init_merge_group(cluster1_id);
@@ -683,55 +724,63 @@ void ClusterManager::merge_only_merge_groups(int cluster1_id, int cluster2_id,
         init_merge_group(cluster2_id);
         group2 = find_merge_group(cluster2_id);
     }
-    
+
     // Check if already in same merge group
     if (group1 == group2) {
         // Already in same merge group, nothing to do
         return;
     }
-    
+
     // Need to update cross vectors for cluster2's merge group if diff is non-zero
     if (idiff != 0 || jdiff != 0 || kdiff != 0) {
         // Get all clusters in group2
         std::vector<int> clusters_to_update = merge_groups_[group2];
-        
+
         // Update cross vectors for all points in these clusters
         for (int cid : clusters_to_update) {
-            for (auto& cluster : clusters_) {
-                if (cluster.id == cid) {
-                    for (auto& pt : cluster.points) {
-                        grid_->cross_i(pt.x, pt.y, pt.z) += idiff;
-                        grid_->cross_j(pt.x, pt.y, pt.z) += jdiff;
-                        grid_->cross_k(pt.x, pt.y, pt.z) += kdiff;
-                        pt.cross_i += idiff;
-                        pt.cross_j += jdiff;
-                        pt.cross_k += kdiff;
-                    }
-                    break;
+            auto it = cluster_index_.find(cid);
+            if (it != cluster_index_.end()) {
+                auto& cluster = clusters_[it->second];
+                for (auto& pt : cluster.points) {
+                    grid_->cross_i(pt.x, pt.y, pt.z) += idiff;
+                    grid_->cross_j(pt.x, pt.y, pt.z) += jdiff;
+                    grid_->cross_k(pt.x, pt.y, pt.z) += kdiff;
+                    pt.cross_i = static_cast<int8_t>(pt.cross_i + idiff);
+                    pt.cross_j = static_cast<int8_t>(pt.cross_j + jdiff);
+                    pt.cross_k = static_cast<int8_t>(pt.cross_k + kdiff);
                 }
             }
         }
     }
-    
+
     // MATLAB semantics: keep lower index group, remove higher index by swap-with-last.
     int low = std::min(group1, group2);
     int high = std::max(group1, group2);
+
+    // 3B: Update all entries from group high to point to low
+    for (int cid : merge_groups_[high]) {
+        cluster_to_merge_group_[cid] = low;
+    }
     merge_groups_[low].insert(merge_groups_[low].end(),
                               merge_groups_[high].begin(),
                               merge_groups_[high].end());
 
     int last = static_cast<int>(merge_groups_.size()) - 1;
     if (high != last) {
+        // 3B: Update all entries that pointed to last to now point to high
+        for (int cid : merge_groups_[last]) {
+            cluster_to_merge_group_[cid] = high;
+        }
         merge_groups_[high] = merge_groups_[last];
     }
     merge_groups_.pop_back();
 }
 
 Cluster& ClusterManager::get_cluster(int id) {
-    for (auto& cluster : clusters_) {
-        if (cluster.id == id) {
-            return cluster;
-        }
+    // 3A: O(1) hash map lookup
+    auto it = cluster_index_.find(id);
+    if (it != cluster_index_.end()) {
+        return clusters_[it->second];
     }
     // Should not happen in normal operation - indicates programming error
     std::cerr << "Warning: Cluster ID " << id << " not found" << std::endl;
@@ -740,10 +789,10 @@ Cluster& ClusterManager::get_cluster(int id) {
 }
 
 const Cluster& ClusterManager::get_cluster(int id) const {
-    for (const auto& cluster : clusters_) {
-        if (cluster.id == id) {
-            return cluster;
-        }
+    // 3A: O(1) hash map lookup
+    auto it = cluster_index_.find(id);
+    if (it != cluster_index_.end()) {
+        return clusters_[it->second];
     }
     std::cerr << "Warning: Cluster ID " << id << " not found" << std::endl;
     static Cluster dummy;
@@ -751,9 +800,9 @@ const Cluster& ClusterManager::get_cluster(int id) const {
 }
 
 std::map<int, int> ClusterManager::compact_clusters(std::vector<TSPoint>& ts_list_all) {
-    std::cout << "\nCompacting clusters..." << std::endl;
-    std::cout << "  Before: " << clusters_.size() << " clusters" << std::endl;
-    
+    std::cout << "\nCompacting clusters..." << '\n';
+    std::cout << "  Before: " << clusters_.size() << " clusters" << '\n';
+
     // Count valid clusters (id != 0)
     int valid_count = 0;
     for (const auto& cluster : clusters_) {
@@ -761,13 +810,13 @@ std::map<int, int> ClusterManager::compact_clusters(std::vector<TSPoint>& ts_lis
             valid_count++;
         }
     }
-    std::cout << "  Valid clusters (id != 0): " << valid_count << std::endl;
-    
+    std::cout << "  Valid clusters (id != 0): " << valid_count << '\n';
+
     // Create mapping from old cluster ID to new cluster ID
     std::map<int, int> id_mapping;
     std::vector<Cluster> valid_clusters;
     int new_id = 1;
-    
+
     for (const auto& cluster : clusters_) {
         if (cluster.id != 0) {  // Only keep non-merged clusters
             Cluster new_cluster = cluster;
@@ -777,9 +826,16 @@ std::map<int, int> ClusterManager::compact_clusters(std::vector<TSPoint>& ts_lis
             new_id++;
         }
     }
-    
+
     // Replace clusters vector with compacted version
     clusters_ = valid_clusters;
+
+    // 3A: Rebuild cluster_index_ from scratch after renumbering
+    cluster_index_.clear();
+    for (size_t i = 0; i < clusters_.size(); i++) {
+        cluster_index_[clusters_[i].id] = i;
+    }
+
     // Update TS list cluster IDs
     for (auto& ts : ts_list_all) {
         if (id_mapping.find(ts.cluster1_id) != id_mapping.end()) {
@@ -789,14 +845,14 @@ std::map<int, int> ClusterManager::compact_clusters(std::vector<TSPoint>& ts_lis
             ts.cluster2_id = id_mapping[ts.cluster2_id];
         }
     }
-    
+
     // Update minID_C matrix with new cluster IDs
     for (const auto& cluster : clusters_) {
         for (const auto& pt : cluster.points) {
             grid_->minID_C(pt.x, pt.y, pt.z) = cluster.id;
         }
     }
-    
+
     // Update merge_groups with new cluster IDs
     for (auto& group : merge_groups_) {
         for (int& cluster_id : group) {
@@ -810,16 +866,24 @@ std::map<int, int> ClusterManager::compact_clusters(std::vector<TSPoint>& ts_lis
         // Remove zero entries from group
         group.erase(std::remove(group.begin(), group.end(), 0), group.end());
     }
-    
+
     // Remove empty merge groups
     merge_groups_.erase(
         std::remove_if(merge_groups_.begin(), merge_groups_.end(),
                       [](const std::vector<int>& group) { return group.empty(); }),
         merge_groups_.end()
     );
-    
-    std::cout << "  After: " << clusters_.size() << " clusters (sequential IDs 1-" << clusters_.size() << ")" << std::endl;
-    std::cout << "  Merge groups: " << merge_groups_.size() << std::endl;
-    
+
+    // 3B: Rebuild cluster_to_merge_group_ from scratch after compact
+    cluster_to_merge_group_.clear();
+    for (size_t i = 0; i < merge_groups_.size(); i++) {
+        for (int cid : merge_groups_[i]) {
+            cluster_to_merge_group_[cid] = static_cast<int>(i);
+        }
+    }
+
+    std::cout << "  After: " << clusters_.size() << " clusters (sequential IDs 1-" << clusters_.size() << ")" << '\n';
+    std::cout << "  Merge groups: " << merge_groups_.size() << '\n';
+
     return id_mapping;
 }

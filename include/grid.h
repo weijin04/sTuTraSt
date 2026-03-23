@@ -5,6 +5,7 @@
 #include <vector>
 #include <array>
 #include <memory>
+#include <cstdint>
 
 class Grid {
 public:
@@ -22,26 +23,26 @@ public:
     double energy_at(int x, int y, int z) const;
     int level_at(int x, int y, int z) const;
     
-    int& minID_L(int x, int y, int z);
-    int minID_L(int x, int y, int z) const;
+    int16_t& minID_L(int x, int y, int z);
+    int16_t minID_L(int x, int y, int z) const;
     
     int& minID_C(int x, int y, int z);
     int minID_C(int x, int y, int z) const;
     
-    int& ts_matrix(int x, int y, int z);
-    int ts_matrix(int x, int y, int z) const;
+    uint8_t& ts_matrix(int x, int y, int z);
+    uint8_t ts_matrix(int x, int y, int z) const;
 
-    int& ts_ever(int x, int y, int z);
-    int ts_ever(int x, int y, int z) const;
-    
-    int& cross_i(int x, int y, int z);
-    int cross_i(int x, int y, int z) const;
-    
-    int& cross_j(int x, int y, int z);
-    int cross_j(int x, int y, int z) const;
-    
-    int& cross_k(int x, int y, int z);
-    int cross_k(int x, int y, int z) const;
+    uint8_t& ts_ever(int x, int y, int z);
+    uint8_t ts_ever(int x, int y, int z) const;
+
+    int8_t& cross_i(int x, int y, int z);
+    int8_t cross_i(int x, int y, int z) const;
+
+    int8_t& cross_j(int x, int y, int z);
+    int8_t cross_j(int x, int y, int z) const;
+
+    int8_t& cross_k(int x, int y, int z);
+    int8_t cross_k(int x, int y, int z) const;
     
     double min_energy() const { return min_energy_; }
     double max_energy() const { return max_energy_; }
@@ -56,13 +57,13 @@ private:
     // 3D matrices
     std::vector<double> E_matrix_;        // Energy at each point
     std::vector<int> level_matrix_;       // Level at each point
-    std::vector<int> minID_L_matrix_;     // Level ID
+    std::vector<int16_t> minID_L_matrix_;     // Level ID (values fit in int16)
     std::vector<int> minID_C_matrix_;     // Cluster ID
-    std::vector<int> TS_matrix_;          // TS marker (can be cleared by merge)
-    std::vector<int> TS_ever_matrix_;      // Sticky TS marker (never cleared, matches MATLAB info(:,6))
-    std::vector<int> cross_i_matrix_;     // Cross vectors
-    std::vector<int> cross_j_matrix_;
-    std::vector<int> cross_k_matrix_;
+    std::vector<uint8_t> TS_matrix_;          // TS marker (0 or 1)
+    std::vector<uint8_t> TS_ever_matrix_;      // Sticky TS marker (0 or 1)
+    std::vector<int8_t> cross_i_matrix_;     // Cross vectors (small range)
+    std::vector<int8_t> cross_j_matrix_;
+    std::vector<int8_t> cross_k_matrix_;
     
     double min_energy_;
     double max_energy_;

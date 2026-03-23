@@ -5,6 +5,7 @@
 #include <array>
 #include <string>
 #include <cmath>
+#include <cstdint>
 
 // 3D coordinate structure
 struct Coord3D {
@@ -34,15 +35,17 @@ struct CrossVector {
 };
 
 // Cluster point information (equivalent to MATLAB list.C(iC).info)
+// Memory-optimized: 36 bytes -> 14 bytes per point
 struct ClusterPoint {
-    int x, y, z;          // Grid coordinates
-    int level;            // Energy level
-    int boundary;         // 1 if boundary point, 0 otherwise
-    int ts_flag;          // MATLAB info(:,6): 1 if point is a TS, persists after merge
-    int cross_i, cross_j, cross_k;  // Periodic image offsets
+    int16_t x, y, z;          // Grid coordinates (grids up to 32767)
+    int16_t level;            // Energy level
+    int8_t  boundary;         // 1 if boundary point, 0 otherwise
+    int8_t  ts_flag;          // MATLAB info(:,6): 1 if point is a TS, persists after merge
+    int8_t  cross_i, cross_j, cross_k;  // Periodic image offsets (small range)
+    int8_t  pad_;             // explicit padding for alignment
 
     ClusterPoint() : x(0), y(0), z(0), level(0), boundary(0), ts_flag(0),
-                     cross_i(0), cross_j(0), cross_k(0) {}
+                     cross_i(0), cross_j(0), cross_k(0), pad_(0) {}
 };
 
 // Cluster structure

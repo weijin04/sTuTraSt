@@ -98,7 +98,7 @@ void TunnelManager::organize_tunnels(const std::vector<int>& tunnel_cluster,
     }
 
     std::cout << "Found " << tunnels_.size() << " tunnels from "
-              << merge_groups.size() << " merge groups" << std::endl;
+              << merge_groups.size() << " merge groups" << '\n';
 }
 
 void TunnelManager::generate_processes(std::vector<Process>& processes) {
@@ -194,7 +194,7 @@ void TunnelManager::generate_processes(std::vector<Process>& processes) {
         }
     }
 
-    std::cout << "Generated " << processes.size() << " processes" << std::endl;
+    std::cout << "Generated " << processes.size() << " processes" << '\n';
 }
 
 Coord3D TunnelManager::get_cluster_min_coord(const Cluster& cluster) {
@@ -384,7 +384,7 @@ CrossVector TunnelManager::calculate_cross_vector_path(const Coord3D& start,
         if (const char* env = std::getenv("TUTRAST_TRACE_PROCESS_FALLBACK"); env && std::string(env) == "1") {
             std::cout << "[TRACE_PROCESS_FALLBACK] start=(" << (start.x + 1) << "," << (start.y + 1) << "," << (start.z + 1)
                       << ") end=(" << (end.x + 1) << "," << (end.y + 1) << "," << (end.z + 1)
-                      << ") coord_list_n=" << coord_list.size() << std::endl;
+                      << ") coord_list_n=" << coord_list.size() << '\n';
         }
         // MATLAB get_TS_cross_vector leaves cross_vector at [0 0 0] when no path is found.
         return CrossVector(0, 0, 0);

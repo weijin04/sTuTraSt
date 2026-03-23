@@ -6,6 +6,8 @@
 #include <vector>
 #include <memory>
 #include <map>
+#include <unordered_map>
+#include <unordered_set>
 
 class ClusterManager {
 public:
@@ -51,10 +53,16 @@ private:
     std::vector<Cluster> clusters_;
     int next_cluster_id_;
     std::vector<std::array<int,3>> tunnel_directions_;
-    
+
+    // O(1) cluster lookup by ID (replaces linear scan)
+    std::unordered_map<int, size_t> cluster_index_;
+
     // Merge groups tracking (MATLAB list.M equivalent)
     // Each vector contains cluster IDs that have been merged together
     std::vector<std::vector<int>> merge_groups_;
+
+    // O(1) merge group lookup by cluster ID (replaces linear scan)
+    std::unordered_map<int, int> cluster_to_merge_group_;
     
     // Initialize merge groups for a cluster
     void init_merge_group(int cluster_id);

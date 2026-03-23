@@ -79,7 +79,7 @@ void Grid::initialize(const std::vector<std::vector<double>>& pot_data,
     for (int i = 0; i < std::min(20, (int)E_matrix_.size()); i++) {
         std::cout << E_matrix_[i] << " ";
     }
-    std::cout << std::endl;
+    std::cout << '\n';
     
     // Calculate level scaling
     double nlevel = (max_energy_ - min_energy_) / energy_step;
@@ -87,12 +87,12 @@ void Grid::initialize(const std::vector<std::vector<double>>& pot_data,
     
     int level_stop = static_cast<int>(std::ceil(energy_cutoff / energy_step));
     
-    std::cout << "Level calculation:" << std::endl;
-    std::cout << "  min_energy: " << min_energy_ << " kJ/mol" << std::endl;
-    std::cout << "  max_energy: " << max_energy_ << " kJ/mol" << std::endl;
-    std::cout << "  nlevel: " << nlevel << std::endl;
-    std::cout << "  level_scale: " << level_scale_ << std::endl;
-    std::cout << "  level_stop: " << level_stop << std::endl;
+    std::cout << "Level calculation:" << '\n';
+    std::cout << "  min_energy: " << min_energy_ << " kJ/mol" << '\n';
+    std::cout << "  max_energy: " << max_energy_ << " kJ/mol" << '\n';
+    std::cout << "  nlevel: " << nlevel << '\n';
+    std::cout << "  level_scale: " << level_scale_ << '\n';
+    std::cout << "  level_stop: " << level_stop << '\n';
     
     // Convert energies to levels
     for (size_t i = 0; i < E_matrix_.size(); i++) {
@@ -109,7 +109,7 @@ void Grid::initialize(const std::vector<std::vector<double>>& pot_data,
     for (int i = 0; i < std::min(20, (int)level_matrix_.size()); i++) {
         std::cout << level_matrix_[i] << " ";
     }
-    std::cout << std::endl;
+    std::cout << '\n';
     
     // Debug: count points at each level (first 5 levels)
     for (int lev = level_min_; lev <= std::min(level_min_ + 4, level_max_); lev++) {
@@ -117,12 +117,12 @@ void Grid::initialize(const std::vector<std::vector<double>>& pot_data,
         for (size_t i = 0; i < level_matrix_.size(); i++) {
             if (level_matrix_[i] == lev) count++;
         }
-        std::cout << "  Level " << lev << ": " << count << " points" << std::endl;
+        std::cout << "  Level " << lev << ": " << count << " points" << '\n';
     }
     
-    std::cout << "Grid initialized:" << std::endl;
-    std::cout << "  Energy range: " << min_energy_ << " - " << max_energy_ << " kJ/mol" << std::endl;
-    std::cout << "  Level range: " << level_min_ << " - " << level_max_ << std::endl;
+    std::cout << "Grid initialized:" << '\n';
+    std::cout << "  Energy range: " << min_energy_ << " - " << max_energy_ << " kJ/mol" << '\n';
+    std::cout << "  Level range: " << level_min_ << " - " << level_max_ << '\n';
 }
 
 double Grid::energy_at(int x, int y, int z) const {
@@ -133,11 +133,11 @@ int Grid::level_at(int x, int y, int z) const {
     return level_matrix_[index(x, y, z)];
 }
 
-int& Grid::minID_L(int x, int y, int z) {
+int16_t& Grid::minID_L(int x, int y, int z) {
     return minID_L_matrix_[index(x, y, z)];
 }
 
-int Grid::minID_L(int x, int y, int z) const {
+int16_t Grid::minID_L(int x, int y, int z) const {
     return minID_L_matrix_[index(x, y, z)];
 }
 
@@ -149,42 +149,42 @@ int Grid::minID_C(int x, int y, int z) const {
     return minID_C_matrix_[index(x, y, z)];
 }
 
-int& Grid::ts_matrix(int x, int y, int z) {
+uint8_t& Grid::ts_matrix(int x, int y, int z) {
     return TS_matrix_[index(x, y, z)];
 }
 
-int Grid::ts_matrix(int x, int y, int z) const {
+uint8_t Grid::ts_matrix(int x, int y, int z) const {
     return TS_matrix_[index(x, y, z)];
 }
 
-int& Grid::ts_ever(int x, int y, int z) {
+uint8_t& Grid::ts_ever(int x, int y, int z) {
     return TS_ever_matrix_[index(x, y, z)];
 }
 
-int Grid::ts_ever(int x, int y, int z) const {
+uint8_t Grid::ts_ever(int x, int y, int z) const {
     return TS_ever_matrix_[index(x, y, z)];
 }
 
-int& Grid::cross_i(int x, int y, int z) {
+int8_t& Grid::cross_i(int x, int y, int z) {
     return cross_i_matrix_[index(x, y, z)];
 }
 
-int Grid::cross_i(int x, int y, int z) const {
+int8_t Grid::cross_i(int x, int y, int z) const {
     return cross_i_matrix_[index(x, y, z)];
 }
 
-int& Grid::cross_j(int x, int y, int z) {
+int8_t& Grid::cross_j(int x, int y, int z) {
     return cross_j_matrix_[index(x, y, z)];
 }
 
-int Grid::cross_j(int x, int y, int z) const {
+int8_t Grid::cross_j(int x, int y, int z) const {
     return cross_j_matrix_[index(x, y, z)];
 }
 
-int& Grid::cross_k(int x, int y, int z) {
+int8_t& Grid::cross_k(int x, int y, int z) {
     return cross_k_matrix_[index(x, y, z)];
 }
 
-int Grid::cross_k(int x, int y, int z) const {
+int8_t Grid::cross_k(int x, int y, int z) const {
     return cross_k_matrix_[index(x, y, z)];
 }

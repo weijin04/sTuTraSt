@@ -52,12 +52,12 @@ void OutputWriter::write_basis(const std::string& filename, const std::vector<Pr
             }
             const auto& min_pt = cluster.points[min_idx];
             file << min_pt.x << " " << min_pt.y << " " << min_pt.z << " "
-                 << cluster.tunnel_id << " " << cluster_id << std::endl;
+                 << cluster.tunnel_id << " " << cluster_id << '\n';
         }
     }
     
     file.close();
-    std::cout << "Wrote " << filename << std::endl;
+    std::cout << "Wrote " << filename << '\n';
 }
 
 void OutputWriter::write_processes(const std::string& filename,
@@ -87,11 +87,11 @@ void OutputWriter::write_processes(const std::string& filename,
              << std::setw(23) << proc.tunnel_id << " "
              << std::setw(23) << (proc.tsgroup_id + 1) << " "  // Convert to 1-indexed
              << std::setw(23) << proc.from_cluster_orig << " "
-             << std::setw(23) << proc.to_cluster_orig << std::endl;
+             << std::setw(23) << proc.to_cluster_orig << '\n';
     }
     
     file.close();
-    std::cout << "Wrote " << filename << std::endl;
+    std::cout << "Wrote " << filename << '\n';
 }
 
 void OutputWriter::write_tunnel_info(const std::string& filename) {
@@ -104,23 +104,23 @@ void OutputWriter::write_tunnel_info(const std::string& filename) {
     
     const auto& tunnels = tunnel_mgr_->tunnels();
     
-    file << "Total tunnels: " << tunnels.size() << std::endl;
+    file << "Total tunnels: " << tunnels.size() << '\n';
     
     for (const auto& tunnel : tunnels) {
-        file << "\nTunnel " << tunnel.id << ":" << std::endl;
+        file << "\nTunnel " << tunnel.id << ":" << '\n';
         file << "  Dimensions: [" << tunnel.dimensions[0] << ", " 
-             << tunnel.dimensions[1] << ", " << tunnel.dimensions[2] << "]" << std::endl;
-        file << "  Min energy: " << tunnel.min_energy << " kJ/mol" << std::endl;
+             << tunnel.dimensions[1] << ", " << tunnel.dimensions[2] << "]" << '\n';
+        file << "  Min energy: " << tunnel.min_energy << " kJ/mol" << '\n';
         file << "  Clusters: ";
         for (int cid : tunnel.cluster_ids) {
             file << cid << " ";
         }
-        file << std::endl;
-        file << "  TS groups: " << tunnel.tsgroup_ids.size() << std::endl;
+        file << '\n';
+        file << "  TS groups: " << tunnel.tsgroup_ids.size() << '\n';
     }
     
     file.close();
-    std::cout << "Wrote " << filename << std::endl;
+    std::cout << "Wrote " << filename << '\n';
 }
 
 void OutputWriter::write_ts_data(const std::string& filename) {
@@ -154,12 +154,12 @@ void OutputWriter::write_ts_data(const std::string& filename) {
                  << "0 "  // Zero column (MATLAB has this)
                  << (pt.x - 0.5) << " " 
                  << (pt.y - 0.5) << " "
-                 << (pt.z - 0.5) << std::endl;
+                 << (pt.z - 0.5) << '\n';
         }
     }
     
     file.close();
-    std::cout << "Wrote " << filename << std::endl;
+    std::cout << "Wrote " << filename << '\n';
 }
 
 void OutputWriter::write_breakthrough(const std::string& filename,
@@ -171,10 +171,10 @@ void OutputWriter::write_breakthrough(const std::string& filename,
         return;
     }
     
-    file << bt_energies[0] << " " << bt_energies[1] << " " << bt_energies[2] << std::endl;
+    file << bt_energies[0] << " " << bt_energies[1] << " " << bt_energies[2] << '\n';
     
     file.close();
-    std::cout << "Wrote " << filename << std::endl;
+    std::cout << "Wrote " << filename << '\n';
 }
 
 void OutputWriter::write_energy_volume(const std::string& filename,
@@ -191,8 +191,8 @@ void OutputWriter::write_energy_volume(const std::string& filename,
         if (i > 0) file << "    ";
         file << static_cast<int>(e_vol[i]);
     }
-    file << std::endl;
+    file << '\n';
     
     file.close();
-    std::cout << "Wrote " << filename << std::endl;
+    std::cout << "Wrote " << filename << '\n';
 }

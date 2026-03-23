@@ -21,29 +21,29 @@
 #include <iomanip>
 
 int main(int /* argc */, char** /* argv */) {
-    std::cout << "============================================" << std::endl;
-    std::cout << "TuTraSt - C++ Implementation" << std::endl;
-    std::cout << "Tunnel and Transition State Search Algorithm" << std::endl;
-    std::cout << "============================================\n" << std::endl;
+    std::cout << "============================================" << '\n';
+    std::cout << "TuTraSt - C++ Implementation" << '\n';
+    std::cout << "Tunnel and Transition State Search Algorithm" << '\n';
+    std::cout << "============================================\n" << '\n';
     
     auto start_time = std::chrono::high_resolution_clock::now();
     
     // Parse input parameters
-    std::cout << "Reading input parameters..." << std::endl;
+    std::cout << "Reading input parameters..." << '\n';
     InputParams params = InputParser::parse("input.param");
     
-    std::cout << "Parameters:" << std::endl;
-    std::cout << "  Energy unit: " << params.energy_unit << std::endl;
+    std::cout << "Parameters:" << '\n';
+    std::cout << "  Energy unit: " << params.energy_unit << '\n';
     std::cout << "  Temperatures: ";
     for (double T : params.temperatures) {
         std::cout << T << " ";
     }
-    std::cout << "K" << std::endl;
-    std::cout << "  Energy step: " << params.energy_step << " kJ/mol" << std::endl;
-    std::cout << "  Energy cutoff: " << params.energy_cutoff << " kJ/mol" << std::endl;
+    std::cout << "K" << '\n';
+    std::cout << "  Energy step: " << params.energy_step << " kJ/mol" << '\n';
+    std::cout << "  Energy cutoff: " << params.energy_cutoff << " kJ/mol" << '\n';
     
     // Parse cube file
-    std::cout << "\nReading grid.cube..." << std::endl;
+    std::cout << "\nReading grid.cube..." << '\n';
     std::array<int, 3> ngrid;
     std::array<double, 3> grid_size;
     std::vector<std::vector<double>> pot_data;
@@ -54,7 +54,7 @@ int main(int /* argc */, char** /* argv */) {
     }
     
     // Initialize grid
-    std::cout << "\nInitializing grid..." << std::endl;
+    std::cout << "\nInitializing grid..." << '\n';
     auto grid = std::make_shared<Grid>(ngrid);
     grid->initialize(pot_data, params.energy_step, params.energy_cutoff);
     
@@ -119,9 +119,9 @@ int main(int /* argc */, char** /* argv */) {
     };
     
     // Main algorithm: Cluster growth and TS detection
-    std::cout << "\n============================================" << std::endl;
-    std::cout << "Starting TS search..." << std::endl;
-    std::cout << "============================================\n" << std::endl;
+    std::cout << "\n============================================" << '\n';
+    std::cout << "Starting TS search..." << '\n';
+    std::cout << "============================================\n" << '\n';
     
     int level_stop = static_cast<int>(std::ceil(params.energy_cutoff / params.energy_step));
     std::vector<TSPoint> ts_list_all;
@@ -131,23 +131,25 @@ int main(int /* argc */, char** /* argv */) {
     std::array<double, 3> BT = {0.0, 0.0, 0.0};  // Breakthrough energies
     std::vector<std::array<int,3>> tunnel_directions;  // Independent tunnel directions (RREF result)
     
+    // Phase 4: Precompute cumulative volume per level to avoid O(N_grid) scan at every level
+    std::vector<long long> cum_volume(grid->max_level() + 2, 0);
+    {
+        for (int z = 0; z < grid->nz(); z++)
+            for (int y = 0; y < grid->ny(); y++)
+                for (int x = 0; x < grid->nx(); x++)
+                    cum_volume[grid->level_at(x, y, z)]++;
+        for (int l = 1; l < (int)cum_volume.size(); l++)
+            cum_volume[l] += cum_volume[l - 1];
+    }
+
     for (int level = grid->min_level(); level <= std::min(level_stop, grid->max_level()); level++) {
-        // Count points at this level
-        int volume = 0;
-        for (int z = 0; z < grid->nz(); z++) {
-            for (int y = 0; y < grid->ny(); y++) {
-                for (int x = 0; x < grid->nx(); x++) {
-                    if (grid->level_at(x, y, z) <= level) {
-                        volume++;
-                    }
-                }
-            }
-        }
+        // Use precomputed cumulative histogram instead of O(N_grid) scan
+        int volume = (level < (int)cum_volume.size()) ? static_cast<int>(cum_volume[level]) : static_cast<int>(cum_volume.back());
         E_volume.push_back(volume);
         
         double energy = level / grid->level_scale();
         std::cout << "Level " << level << " (" << energy << " kJ/mol)";
-        std::cout << ", Volume: " << volume << std::endl;
+        std::cout << ", Volume: " << volume << '\n';
         
         std::vector<TSPoint> ts_list;
         std::vector<std::array<int,3>> tunnel_list;
@@ -169,7 +171,7 @@ int main(int /* argc */, char** /* argv */) {
                 valid_cluster_count++;
             }
         }
-        std::cout << "  Valid clusters after level " << level << ": " << valid_cluster_count << std::endl;
+        std::cout << "  Valid clusters after level " << level << ": " << valid_cluster_count << '\n';
         
         // Add TS points to global list
         ts_list_all.insert(ts_list_all.end(), ts_list.begin(), ts_list.end());
@@ -180,7 +182,7 @@ int main(int /* argc */, char** /* argv */) {
             // Debug: show tunnel_list size before RREF (for early levels)
             const int DEBUG_MAX_LEVEL = 15;
             if (level <= DEBUG_MAX_LEVEL) {
-                std::cout << "  tunnel_list has " << tunnel_list.size() << " entries before RREF" << std::endl;
+                std::cout << "  tunnel_list has " << tunnel_list.size() << " entries before RREF" << '\n';
             }
             
             // Compute RREF to find independent tunnel directions
@@ -190,9 +192,9 @@ int main(int /* argc */, char** /* argv */) {
                 // Update tunnel_directions with independent vectors
                 tunnel_directions = echelon;
                 
-                std::cout << "  Breakthrough in " << echelon.size() << " independent direction(s): " << std::endl;
+                std::cout << "  Breakthrough in " << echelon.size() << " independent direction(s): " << '\n';
                 for (const auto& dir : echelon) {
-                    std::cout << "    [" << dir[0] << ", " << dir[1] << ", " << dir[2] << "]" << std::endl;
+                    std::cout << "    [" << dir[0] << ", " << dir[1] << ", " << dir[2] << "]" << '\n';
                 }
                 
                 // Check each axis for breakthrough
@@ -213,23 +215,23 @@ int main(int /* argc */, char** /* argv */) {
                 
                 if (has_breakthrough) {
                     std::cout << "  >>> Breakthrough detected at level " << level 
-                             << " (" << energy << " kJ/mol)" << std::endl;
+                             << " (" << energy << " kJ/mol)" << '\n';
                 }
             }
         }
         
         if (level % 10 == 0 || !tunnel_list.empty()) {
             std::cout << "  Clusters: " << cluster_mgr->num_clusters() 
-                     << ", TS points: " << ts_list_all.size() << std::endl;
+                     << ", TS points: " << ts_list_all.size() << '\n';
         }
     }
     
-    std::cout << "\n============================================" << std::endl;
-    std::cout << "TS search complete" << std::endl;
-    std::cout << "============================================\n" << std::endl;
+    std::cout << "\n============================================" << '\n';
+    std::cout << "TS search complete" << '\n';
+    std::cout << "============================================\n" << '\n';
     
-    std::cout << "Total clusters: " << cluster_mgr->num_clusters() << std::endl;
-    std::cout << "Total TS points: " << ts_list_all.size() << std::endl;
+    std::cout << "Total clusters: " << cluster_mgr->num_clusters() << '\n';
+    std::cout << "Total TS points: " << ts_list_all.size() << '\n';
     maybe_dump_ts_list("debug_ts_list_all_precompact.dat", ts_list_all);
     maybe_dump_minid_c();
     
@@ -249,35 +251,35 @@ int main(int /* argc */, char** /* argv */) {
     // MATLAB compatibility: only build TS/tunnel/process structures if breakthrough exists.
     if (!tunnel_directions.empty()) {
         // Organize transition states
-        std::cout << "\nOrganizing transition states..." << std::endl;
+        std::cout << "\nOrganizing transition states..." << '\n';
         ts_mgr->organize_ts_groups(ts_list_all);
-        std::cout << "TS groups: " << ts_mgr->ts_groups().size() << std::endl;
+        std::cout << "TS groups: " << ts_mgr->ts_groups().size() << '\n';
         
         // Organize tunnels
-        std::cout << "\nOrganizing tunnels..." << std::endl;
+        std::cout << "\nOrganizing tunnels..." << '\n';
         tunnel_mgr->organize_tunnels(tunnel_cluster, tunnel_cluster_dim);
         
         // Generate processes
-        std::cout << "\nGenerating processes..." << std::endl;
+        std::cout << "\nGenerating processes..." << '\n';
         tunnel_mgr->generate_processes(processes);
     } else {
-        std::cout << "\nNo breakthrough directions found; skipping TS/tunnel/process generation." << std::endl;
+        std::cout << "\nNo breakthrough directions found; skipping TS/tunnel/process generation." << '\n';
     }
     
     // Calculate rates for each temperature
-    std::cout << "\n============================================" << std::endl;
-    std::cout << "Calculating transition rates..." << std::endl;
-    std::cout << "============================================\n" << std::endl;
+    std::cout << "\n============================================" << '\n';
+    std::cout << "Calculating transition rates..." << '\n';
+    std::cout << "============================================\n" << '\n';
     
     auto output_writer = std::make_shared<OutputWriter>(cluster_mgr, tunnel_mgr, ts_mgr, params.energy_step);
     
     // Calculate average voxel size (in Angstroms)
     // grid_size is the voxel spacing; ave_grid_size = mean(grid_size) matches MATLAB
     double ave_grid_size = (grid_size[0] + grid_size[1] + grid_size[2]) / 3.0;
-    std::cout << "  Average grid size (voxel): " << ave_grid_size << " Angstroms" << std::endl;
+    std::cout << "  Average grid size (voxel): " << ave_grid_size << " Angstroms" << '\n';
     
     for (double T : params.temperatures) {
-        std::cout << "\nTemperature: " << T << " K" << std::endl;
+        std::cout << "\nTemperature: " << T << " K" << '\n';
         
         double RT = R_GAS * T;  // J/(mol·K) * K = J/mol
         double beta = 1.0 / RT;  // mol/J
@@ -356,11 +358,11 @@ int main(int /* argc */, char** /* argv */) {
             D_file << std::scientific;
             D_file << 0.0 << " " << 0.0 << " "
                    << 0.0 << " " << 0.0 << " "
-                   << 0.0 << " " << 0.0 << std::endl;
+                   << 0.0 << " " << 0.0 << '\n';
             D_file.close();
         } else if (params.run_kmc) {
             // Run kMC if requested
-            std::cout << "\nRunning kMC simulations..." << std::endl;
+            std::cout << "\nRunning kMC simulations..." << '\n';
             
             // Extract basis sites from clusters involved in processes (MATLAB-compatible)
             std::vector<Coord3D> basis_sites;
@@ -399,15 +401,15 @@ int main(int /* argc */, char** /* argv */) {
             D_file << std::scientific;
             D_file << D_ave[0] << " " << D_ave[1] << " " 
                    << D_ave[2] << " " << D_ave[3] << " "
-                   << D_ave[4] << " " << D_ave[5] << std::endl;
+                   << D_ave[4] << " " << D_ave[5] << '\n';
             D_file.close();
         }
     }
     
     // Write other output files
-    std::cout << "\n============================================" << std::endl;
-    std::cout << "Writing output files..." << std::endl;
-    std::cout << "============================================\n" << std::endl;
+    std::cout << "\n============================================" << '\n';
+    std::cout << "Writing output files..." << '\n';
+    std::cout << "============================================\n" << '\n';
     
     if (!processes.empty()) {
         output_writer->write_basis("basis.dat", processes);
@@ -416,10 +418,10 @@ int main(int /* argc */, char** /* argv */) {
     output_writer->write_tunnel_info("tunnel_info.out");
     
     // Write breakthrough energies
-    std::cout << "\nBreakthrough energies:" << std::endl;
-    std::cout << "  A direction: " << BT[0] << " kJ/mol" << std::endl;
-    std::cout << "  B direction: " << BT[1] << " kJ/mol" << std::endl;
-    std::cout << "  C direction: " << BT[2] << " kJ/mol" << std::endl;
+    std::cout << "\nBreakthrough energies:" << '\n';
+    std::cout << "  A direction: " << BT[0] << " kJ/mol" << '\n';
+    std::cout << "  B direction: " << BT[1] << " kJ/mol" << '\n';
+    std::cout << "  C direction: " << BT[2] << " kJ/mol" << '\n';
     output_writer->write_breakthrough("BT.dat", BT);
     
     if (!params.temperatures.empty() && !processes.empty()) {
@@ -430,10 +432,10 @@ int main(int /* argc */, char** /* argv */) {
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time);
     
-    std::cout << "\n============================================" << std::endl;
-    std::cout << "Complete!" << std::endl;
-    std::cout << "Total time: " << duration.count() << " seconds" << std::endl;
-    std::cout << "============================================" << std::endl;
+    std::cout << "\n============================================" << '\n';
+    std::cout << "Complete!" << '\n';
+    std::cout << "Total time: " << duration.count() << " seconds" << '\n';
+    std::cout << "============================================" << '\n';
     
     return 0;
 }

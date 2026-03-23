@@ -1,18 +1,15 @@
 #!/bin/bash
 
-# Build script for TuTraSt C++ implementation
-# Usage: ./build.sh [clean|debug|release]
-
-set -e  # Exit on error
+set -euo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 BUILD_DIR="$SCRIPT_DIR/build"
+MODE="${1:-release}"
 
-# Color output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 print_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -26,91 +23,169 @@ print_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
-# Clean build directory
-if [ "$1" = "clean" ]; then
+if [ "$MODE" = "clean" ]; then
     print_info "Cleaning build directory..."
     rm -rf "$BUILD_DIR"
     print_info "Clean complete"
     exit 0
 fi
 
-# Check for CMake
-if ! command -v cmake &> /dev/null; then
-    print_error "CMake is not installed. Please install CMake 3.10 or higher."
-    exit 1
-fi
-
-# Check CMake version
-CMAKE_VERSION=$(cmake --version | grep -oP '\d+\.\d+' | head -1)
-CMAKE_MAJOR=$(echo $CMAKE_VERSION | cut -d. -f1)
-CMAKE_MINOR=$(echo $CMAKE_VERSION | cut -d. -f2)
-
-if [ "$CMAKE_MAJOR" -lt 3 ] || ([ "$CMAKE_MAJOR" -eq 3 ] && [ "$CMAKE_MINOR" -lt 10 ]); then
-    print_error "CMake version $CMAKE_VERSION is too old. Please install CMake 3.10 or higher."
-    exit 1
-fi
-
-# Check for C++ compiler
-if ! command -v g++ &> /dev/null && ! command -v clang++ &> /dev/null; then
-    print_error "No C++ compiler found. Please install g++ or clang++."
-    exit 1
-fi
-
-# Prefer a real compiler binary over ccache wrappers to avoid sandbox tmp issues.
-if [ -x /usr/bin/g++ ]; then
-    CXX_BIN="/usr/bin/g++"
-elif [ -x /usr/bin/clang++ ]; then
-    CXX_BIN="/usr/bin/clang++"
-elif command -v g++ &> /dev/null; then
-    CXX_BIN="$(command -v g++)"
-else
-    CXX_BIN="$(command -v clang++)"
-fi
-
-# Create build directory
-mkdir -p "$BUILD_DIR"
-
-# Determine build type
-BUILD_TYPE="Release"
-if [ "$1" = "debug" ]; then
-    BUILD_TYPE="Debug"
-    print_info "Building in Debug mode..."
-else
-    print_info "Building in Release mode..."
-fi
-
-# Configure with CMake
-print_info "Configuring with CMake..."
-if ! cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_CXX_COMPILER="$CXX_BIN"; then
-    print_error "CMake configuration failed!"
-    print_info "Trying again with a clean build directory..."
-    rm -rf "$BUILD_DIR"
-    mkdir -p "$BUILD_DIR"
-    if ! cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_CXX_COMPILER="$CXX_BIN"; then
-        print_error "CMake configuration failed even after cleaning!"
-        exit 1
+select_compiler() {
+    if [ -n "${TUTRAST_CXX:-}" ] && [ -x "${TUTRAST_CXX}" ]; then
+        printf '%s\n' "$TUTRAST_CXX"
+        return 0
     fi
-fi
 
-# Build
-print_info "Compiling..."
-if ! cmake --build "$BUILD_DIR" -j $(nproc 2>/dev/null || echo 4); then
-    print_error "Compilation failed!"
+    if [ -x "$HOME/miniforge3/bin/x86_64-conda-linux-gnu-c++" ]; then
+        printf '%s\n' "$HOME/miniforge3/bin/x86_64-conda-linux-gnu-c++"
+        return 0
+    fi
+
+    if [ -x /usr/bin/g++ ]; then
+        printf '%s\n' /usr/bin/g++
+        return 0
+    fi
+
+    if command -v g++ >/dev/null 2>&1; then
+        command -v g++
+        return 0
+    fi
+
+    if [ -x /usr/bin/clang++ ]; then
+        printf '%s\n' /usr/bin/clang++
+        return 0
+    fi
+
+    if command -v clang++ >/dev/null 2>&1; then
+        command -v clang++
+        return 0
+    fi
+
+    return 1
+}
+
+compiler_supports_flag() {
+    local flag="$1"
+    local tmpdir src bin
+    tmpdir="$(mktemp -d)"
+    src="$tmpdir/test.cpp"
+    bin="$tmpdir/test.bin"
+    cat > "$src" <<'SRC'
+int main() { return 0; }
+SRC
+    if "$CXX_BIN" "$flag" "$src" -o "$bin" >/dev/null 2>&1; then
+        rm -rf "$tmpdir"
+        return 0
+    fi
+    rm -rf "$tmpdir"
+    return 1
+}
+
+manual_build() {
+    local build_type="$1"
+    mkdir -p "$BUILD_DIR"
+
+    local -a common_flags
+    local -a opt_flags
+    local -a arch_flags
+    local -a lto_flags
+    local -a omp_flags
+    local -a tutrast_sources
+
+    common_flags=(-std=c++17 -Wall -Wextra -pipe)
+    tutrast_sources=(
+        "$SCRIPT_DIR/src/main.cpp"
+        "$SCRIPT_DIR/src/cube_parser.cpp"
+        "$SCRIPT_DIR/src/input_parser.cpp"
+        "$SCRIPT_DIR/src/grid.cpp"
+        "$SCRIPT_DIR/src/cluster.cpp"
+        "$SCRIPT_DIR/src/transition_state.cpp"
+        "$SCRIPT_DIR/src/tunnel.cpp"
+        "$SCRIPT_DIR/src/pbc.cpp"
+        "$SCRIPT_DIR/src/output_writer.cpp"
+        "$SCRIPT_DIR/src/kmc.cpp"
+        "$SCRIPT_DIR/src/matrix_utils.cpp"
+    )
+
+    if [ "$build_type" = "Debug" ]; then
+        opt_flags=(-O0 -g)
+        print_info "Building in Debug mode..."
+    else
+        opt_flags=(-O3 -DNDEBUG)
+        print_info "Building in high-performance Release mode..."
+    fi
+
+    if [ -n "${TUTRAST_ARCH_FLAGS:-}" ]; then
+        arch_flags=(${TUTRAST_ARCH_FLAGS})
+    else
+        arch_flags=(-march=znver4 -mtune=znver4)
+    fi
+
+    if compiler_supports_flag -flto; then
+        lto_flags=(-flto)
+    else
+        lto_flags=()
+        print_warning "Compiler does not support -flto, continuing without LTO."
+    fi
+
+    if compiler_supports_flag -fopenmp; then
+        omp_flags=(-fopenmp)
+    else
+        omp_flags=()
+        print_warning "Compiler does not support OpenMP, grid generator will run single-threaded."
+    fi
+
+    print_info "Compiler: $CXX_BIN"
+    print_info "Architecture flags: ${arch_flags[*]}"
+    [ ${#lto_flags[@]} -gt 0 ] && print_info "LTO enabled"
+    [ ${#omp_flags[@]} -gt 0 ] && print_info "OpenMP enabled for mkgrid"
+
+    print_info "Compiling tutrast..."
+    "$CXX_BIN" \
+        "${common_flags[@]}" "${opt_flags[@]}" "${arch_flags[@]}" "${lto_flags[@]}" \
+        -I"$SCRIPT_DIR/include" \
+        "${tutrast_sources[@]}" \
+        -o "$BUILD_DIR/tutrast" \
+        -lm
+
+    print_info "Compiling generate_pes_grid_v10_cpp..."
+    "$CXX_BIN" \
+        "${common_flags[@]}" "${opt_flags[@]}" "${arch_flags[@]}" "${lto_flags[@]}" "${omp_flags[@]}" \
+        -I"$SCRIPT_DIR/include" \
+        "$SCRIPT_DIR/src/pes_grid_v10_cpp.cpp" \
+        -o "$BUILD_DIR/generate_pes_grid_v10_cpp" \
+        -lm
+}
+
+if ! CXX_BIN="$(select_compiler)"; then
+    print_error "No C++ compiler found. Please install g++ or clang++ in user space."
     exit 1
 fi
 
-# Check if build succeeded
-if [ -f "$BUILD_DIR/tutrast" ]; then
+BUILD_TYPE="Release"
+if [ "$MODE" = "debug" ]; then
+    BUILD_TYPE="Debug"
+fi
+
+if command -v cmake >/dev/null 2>&1; then
+    print_info "Using CMake-based build..."
+    mkdir -p "$BUILD_DIR"
+    if ! cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE="$BUILD_TYPE" -DCMAKE_CXX_COMPILER="$CXX_BIN"; then
+        print_warning "CMake configuration with Ninja failed, retrying with default generator..."
+        rm -rf "$BUILD_DIR"
+        mkdir -p "$BUILD_DIR"
+        cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE="$BUILD_TYPE" -DCMAKE_CXX_COMPILER="$CXX_BIN"
+    fi
+    cmake --build "$BUILD_DIR" -j "$(nproc 2>/dev/null || echo 4)"
+else
+    print_warning "CMake not found in PATH, using manual high-performance build fallback."
+    manual_build "$BUILD_TYPE"
+fi
+
+if [ -f "$BUILD_DIR/tutrast" ] && [ -f "$BUILD_DIR/generate_pes_grid_v10_cpp" ]; then
     print_info "Build successful!"
     print_info "Executable location: $BUILD_DIR/tutrast"
-    print_info ""
-    print_info "To run the program:"
-    print_info "  cd $SCRIPT_DIR"
-    print_info "  ./build/tutrast"
-    print_info ""
-    print_info "To install system-wide (optional):"
-    print_info "  cd $BUILD_DIR"
-    print_info "  sudo make install"
+    print_info "Grid generator: $BUILD_DIR/generate_pes_grid_v10_cpp"
 else
     print_error "Build failed!"
     exit 1

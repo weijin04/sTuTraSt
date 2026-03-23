@@ -122,7 +122,7 @@ struct ArgConfig {
     std::string probe{"Xe"};
     double spacing{GRID_SPACING_DEFAULT};
     double cutoff{CUTOFF_DEFAULT};
-    int n_jobs{-1};
+    int n_jobs{4};
     int chunk_size{5000};
     std::string cell_preexpand{"off"};
 };
@@ -996,7 +996,7 @@ ArgConfig parse_args(int argc, char** argv) {
     if (argc < 3) {
         throw std::runtime_error(
             "Usage: generate_pes_grid_v10_cpp <cif> <output.cube> [--probe Xe] [--spacing 0.15] [--cutoff 12.8] "
-            "[--n_jobs -1] [--chunk_size 5000] [--cell_preexpand off|auto]");
+            "[--n_jobs 4] [--chunk_size 5000] [--cell_preexpand off|auto]");
     }
 
     ArgConfig cfg;

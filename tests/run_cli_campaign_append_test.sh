@@ -4,19 +4,16 @@ set -euo pipefail
 
 BIN="$1"
 FIXTURE_DIR="$2"
+BIN="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$BIN")"
+FIXTURE_DIR="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$FIXTURE_DIR")"
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 mkdir -p "$WORKDIR/baseline2" "$WORKDIR/baseline3" "$WORKDIR/campaign"
 for dir in baseline2 baseline3 campaign; do
-  cp "$FIXTURE_DIR/input.param" "$WORKDIR/$dir/input.param"
-  cp "$FIXTURE_DIR/grid.cube" "$WORKDIR/$dir/grid.cube"
+  python3 "$SCRIPT_DIR/../benchmarks/generate_synthetic_fixture.py" --case medium --output-dir "$WORKDIR/$dir"
 done
-
-awk 'NR==8{$0="2"}1' "$WORKDIR/baseline2/input.param" > "$WORKDIR/baseline2/input.param.tmp"
-mv "$WORKDIR/baseline2/input.param.tmp" "$WORKDIR/baseline2/input.param"
-awk 'NR==8{$0="2"}1' "$WORKDIR/campaign/input.param" > "$WORKDIR/campaign/input.param.tmp"
-mv "$WORKDIR/campaign/input.param.tmp" "$WORKDIR/campaign/input.param"
 
 (
   cd "$WORKDIR/baseline2"
@@ -34,8 +31,10 @@ mv "$WORKDIR/campaign/input.param.tmp" "$WORKDIR/campaign/input.param"
 diff -u "$WORKDIR/baseline2/D_ave_300.dat" "$WORKDIR/campaign/D_ave_300.dat"
 diff -u "$WORKDIR/baseline2/T300_msd1.dat" "$WORKDIR/campaign/T300_msd1.dat"
 diff -u "$WORKDIR/baseline2/T300_msd2.dat" "$WORKDIR/campaign/T300_msd2.dat"
+awk '{print $2, $4, $6}' "$WORKDIR/baseline2/D_ave_300.dat" | grep -vq '^0 0 0$'
 
-awk 'NR==8{$0="3"}1' "$FIXTURE_DIR/input.param" > "$WORKDIR/baseline3/input.param"
+awk 'NR==8{$0="3"}1' "$WORKDIR/baseline3/input.param" > "$WORKDIR/baseline3/input.param.tmp"
+mv "$WORKDIR/baseline3/input.param.tmp" "$WORKDIR/baseline3/input.param"
 awk 'NR==8{$0="3"}1' "$WORKDIR/campaign/input.param" > "$WORKDIR/campaign/input.param.tmp"
 mv "$WORKDIR/campaign/input.param.tmp" "$WORKDIR/campaign/input.param"
 

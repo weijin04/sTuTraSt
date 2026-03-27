@@ -5,7 +5,9 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <map>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 
@@ -48,6 +50,7 @@ std::string campaign_manifest_path(const std::string& campaign_dir) {
 
 void write_kmc_campaign_manifest(const std::string& path, const KmcCampaignManifest& manifest) {
     std::ostringstream out;
+    out << std::scientific << std::setprecision(std::numeric_limits<double>::max_digits10);
     out << manifest_magic() << '\n';
     out << "schema_version=" << manifest.schema_version << '\n';
     out << "build_fingerprint=" << manifest.build_fingerprint << '\n';

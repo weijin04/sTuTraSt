@@ -36,7 +36,6 @@ def run_case(binary: Path, case_name: str, seed: int) -> dict:
         elapsed, max_rss_kib = stderr_lines[-1].split()
         return {
             "case": case_name,
-            "workdir": str(workdir),
             "elapsed_seconds": float(elapsed),
             "max_rss_kib": int(max_rss_kib),
         }

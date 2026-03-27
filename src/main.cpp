@@ -38,12 +38,12 @@ std::string campaign_checkpoint_path_for(const CliOptions& options, const std::s
     return (campaign_root / "checkpoints" / (run_label + ".chk")).string();
 }
 
-void write_diffusion_file(const std::string& path, const std::array<double, 3>& diffusion) {
+void write_diffusion_file(const std::string& path, const std::array<double, 6>& diffusion) {
     std::ofstream d_file(path);
     d_file << std::scientific;
-    d_file << diffusion[0] << " " << 0.0 << " "
-           << diffusion[1] << " " << 0.0 << " "
-           << diffusion[2] << " " << 0.0 << '\n';
+    d_file << diffusion[0] << " " << diffusion[1] << " "
+           << diffusion[2] << " " << diffusion[3] << " "
+           << diffusion[4] << " " << diffusion[5] << '\n';
 }
 
 KmcCheckpointHeader make_checkpoint_header(const KMC& kmc,
@@ -171,6 +171,9 @@ bool run_campaign_kmc_phase2(KMC& kmc,
         if (n_steps > manifest.lag_plan_steps) {
             throw std::runtime_error("Requested n_steps exceeds the campaign lag planning horizon; start the campaign with a larger --campaign-plan-steps value");
         }
+        if (n_steps < manifest.target_steps) {
+            throw std::runtime_error("Shrinking target n_steps for an existing campaign is not supported");
+        }
         if (n_steps > manifest.target_steps) {
             if (manifest.target_runs != 1 || manifest.completed_runs.size() > 1) {
                 throw std::runtime_error("Exact step-horizon extension is currently supported only for single-run campaigns; append-runs continuation remains available for multi-run campaigns");
@@ -266,11 +269,17 @@ bool run_campaign_kmc_phase2(KMC& kmc,
         manifest.current_rng_state = state.rng_state;
         manifest.active_run_index = 0;
         manifest.active_checkpoint_path.clear();
+        if (manifest.target_runs == 1 && manifest.lag_plan_steps > static_cast<int>(state.target_steps)) {
+            write_kmc_checkpoint(checkpoint_path,
+                                 KmcCheckpointData{make_checkpoint_header(kmc, run_label, manifest.checkpoint_every),
+                                                   state});
+            manifest.active_checkpoint_path = checkpoint_path;
+        }
         write_kmc_campaign_manifest(manifest_path, manifest);
 
         const std::array<double, 6> aggregate = aggregate_campaign_diffusion(manifest.completed_runs);
         write_diffusion_file("D_ave_" + run_label_prefix.substr(1, run_label_prefix.size() - 2) + ".dat",
-                             {aggregate[0], aggregate[2], aggregate[4]});
+                             aggregate);
 
         next_run_index++;
     }
@@ -684,7 +693,8 @@ int main(int argc, char** argv) {
                                                              "T" + T_str + "_",
                                                              diffusion);
                 if (completed) {
-                    write_diffusion_file("D_ave_" + T_str + ".dat", diffusion);
+                    write_diffusion_file("D_ave_" + T_str + ".dat",
+                                         {diffusion[0], 0.0, diffusion[1], 0.0, diffusion[2], 0.0});
                 } else {
                     kmc_paused = true;
                 }

@@ -4,6 +4,8 @@ set -euo pipefail
 
 BIN="$1"
 FIXTURE_DIR="$2"
+BIN="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$BIN")"
+FIXTURE_DIR="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$FIXTURE_DIR")"
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
@@ -27,11 +29,18 @@ mv "$WORKDIR/multi/input.param.tmp" "$WORKDIR/multi/input.param"
 
 (
   cd "$WORKDIR/campaign"
-  TUTRAST_KMC_SEED=42 "$BIN" --campaign-dir ./campaign_state --campaign-plan-steps 200 --checkpoint-every 10 > campaign100.log 2>&1
+  TUTRAST_KMC_SEED=42 "$BIN" --campaign-dir ./campaign_state --campaign-plan-steps 200 > campaign100.log 2>&1
   test -f campaign_state/checkpoints/T300_run1.chk
   awk 'NR==6{$0="200"}1' input.param > input.param.tmp
   mv input.param.tmp input.param
   TUTRAST_KMC_SEED=42 "$BIN" --campaign-dir ./campaign_state > campaign200.log 2>&1
+  awk 'NR==6{$0="150"}1' input.param > input.param.tmp
+  mv input.param.tmp input.param
+  if TUTRAST_KMC_SEED=42 "$BIN" --campaign-dir ./campaign_state > campaign_shrink.log 2>&1; then
+    echo "Expected campaign shrink to be rejected"
+    exit 1
+  fi
+  grep -q "Shrinking target n_steps" campaign_shrink.log
 )
 
 diff -u "$WORKDIR/baseline/D_ave_300.dat" "$WORKDIR/campaign/D_ave_300.dat"

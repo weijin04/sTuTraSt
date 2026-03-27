@@ -4,6 +4,8 @@ set -euo pipefail
 
 BIN="$1"
 FIXTURE_DIR="$2"
+BIN="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$BIN")"
+FIXTURE_DIR="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$FIXTURE_DIR")"
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 

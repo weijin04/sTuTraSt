@@ -127,4 +127,27 @@ if(BUILD_TESTING)
                 $<TARGET_FILE:tutrast>
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/small_cli
     )
+
+    add_test(
+        NAME tutrast_cli_campaign_extend
+        COMMAND /bin/bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_cli_campaign_extend_test.sh
+                $<TARGET_FILE:tutrast>
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/small_cli
+    )
+
+    add_test(
+        NAME benchmark_suite_smoke
+        COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/run_benchmark_suite.py
+                --bin $<TARGET_FILE:tutrast>
+                --cases small medium
+    )
+
+    add_test(
+        NAME statistical_acceptance_smoke
+        COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/statistical_acceptance.py
+                --baseline-bin $<TARGET_FILE:tutrast>
+                --candidate-bin $<TARGET_FILE:tutrast>
+                --cases medium
+                --seeds 11 23 37 41
+    )
 endif()

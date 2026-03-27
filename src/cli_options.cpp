@@ -59,6 +59,11 @@ CliOptions parse_cli_options(int argc, char** argv) {
             options.max_kmc_steps_set = true;
             continue;
         }
+        if (arg == "--campaign-plan-steps") {
+            options.campaign_plan_steps = parse_positive_int(require_value(argc, argv, i, arg), arg);
+            options.campaign_plan_steps_set = true;
+            continue;
+        }
 
         throw std::runtime_error("Unknown option: " + arg);
     }
@@ -73,6 +78,9 @@ void validate_cli_options(const CliOptions& options, const InputParams& params) 
 
     if (options.has_resume() && options.has_campaign()) {
         throw std::runtime_error("--resume and --campaign-dir are mutually exclusive");
+    }
+    if (options.campaign_plan_steps_set && !options.has_campaign()) {
+        throw std::runtime_error("--campaign-plan-steps requires --campaign-dir");
     }
     if (!params.run_kmc) {
         throw std::runtime_error("Checkpoint/resume options require run_kmc=1 in input.param");
@@ -89,6 +97,9 @@ void validate_cli_options(const CliOptions& options, const InputParams& params) 
     if (params.n_steps <= 0) {
         throw std::runtime_error("Checkpoint/resume requires n_steps > 0");
     }
+    if (options.campaign_plan_steps_set && options.campaign_plan_steps < params.n_steps) {
+        throw std::runtime_error("--campaign-plan-steps must be >= n_steps from input.param");
+    }
 }
 
 std::string cli_help_text() {
@@ -98,6 +109,7 @@ std::string cli_help_text() {
         << "  --help, -h               Show this help text\n"
         << "  --resume <checkpoint>    Resume a single-run kMC checkpoint\n"
         << "  --campaign-dir <dir>     Run or continue a manifest-backed multi-run campaign\n"
+        << "  --campaign-plan-steps <N> Pre-allocate lag tracking so a campaign can later extend a run to N steps\n"
         << "  --checkpoint-every <N>   Write a full checkpoint every N kMC steps\n"
         << "  --checkpoint-dir <dir>   Directory for fresh-run checkpoint files (default: current dir)\n"
         << "  --max-kmc-steps <N>      Advance at most N kMC steps in this invocation\n";

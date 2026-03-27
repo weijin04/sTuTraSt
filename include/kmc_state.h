@@ -28,6 +28,7 @@ struct AxisSums {
 struct KmcRunState {
     uint64_t current_step = 0;
     uint64_t target_steps = 0;
+    uint64_t lag_plan_steps = 0;
     int requested_particles = 0;
     int effective_particles = 0;
     double current_time = 0.0;

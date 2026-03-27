@@ -205,6 +205,7 @@ std::string serialize_payload(const KmcCheckpointData& checkpoint) {
 
     writer.write_scalar(checkpoint.state.current_step);
     writer.write_scalar(checkpoint.state.target_steps);
+    writer.write_scalar(checkpoint.state.lag_plan_steps);
     writer.write_scalar(checkpoint.state.requested_particles);
     writer.write_scalar(checkpoint.state.effective_particles);
     writer.write_scalar(checkpoint.state.current_time);
@@ -238,6 +239,7 @@ KmcCheckpointData deserialize_payload(uint32_t schema_version, const std::string
 
     checkpoint.state.current_step = reader.read_scalar<uint64_t>();
     checkpoint.state.target_steps = reader.read_scalar<uint64_t>();
+    checkpoint.state.lag_plan_steps = reader.read_scalar<uint64_t>();
     checkpoint.state.requested_particles = reader.read_scalar<int>();
     checkpoint.state.effective_particles = reader.read_scalar<int>();
     checkpoint.state.current_time = reader.read_scalar<double>();

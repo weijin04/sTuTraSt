@@ -40,14 +40,15 @@ public:
      *              -> compute_msd_from_state()
      *              -> compute_diffusion_from_msd()
      */
-    KmcRunState create_initial_run_state(int target_steps, int n_particles) const;
+    KmcRunState create_initial_run_state(int target_steps, int n_particles, int lag_plan_steps = -1) const;
     bool advance_run_state(KmcRunState& state,
                            int checkpoint_every,
                            int max_additional_steps,
                            const std::function<void(const KmcRunState&)>& on_checkpoint);
     void validate_run_state(const KmcRunState& state,
                             int expected_steps,
-                            int expected_requested_particles) const;
+                            int expected_requested_particles,
+                            int expected_lag_plan_steps = -1) const;
     std::vector<std::array<double, 4>> compute_msd_from_state(const KmcRunState& state) const;
     std::array<double, 3> compute_diffusion_from_msd(const std::vector<std::array<double, 4>>& msd) const;
     uint64_t model_fingerprint() const { return model_fingerprint_; }

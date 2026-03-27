@@ -8,8 +8,10 @@ struct CliOptions {
     bool show_help = false;
     bool checkpoint_every_set = false;
     bool max_kmc_steps_set = false;
+    bool campaign_plan_steps_set = false;
     int checkpoint_every = 0;
     int max_kmc_steps = 0;
+    int campaign_plan_steps = 0;
     std::string checkpoint_dir = ".";
     std::string campaign_dir;
     std::string resume_path;

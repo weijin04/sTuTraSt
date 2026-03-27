@@ -55,6 +55,7 @@ void write_kmc_campaign_manifest(const std::string& path, const KmcCampaignManif
     out << "model_fingerprint=" << manifest.model_fingerprint << '\n';
     out << "floating_rounding_mode=" << manifest.floating_rounding_mode << '\n';
     out << "target_steps=" << manifest.target_steps << '\n';
+    out << "lag_plan_steps=" << manifest.lag_plan_steps << '\n';
     out << "requested_particles=" << manifest.requested_particles << '\n';
     out << "target_runs=" << manifest.target_runs << '\n';
     out << "checkpoint_every=" << manifest.checkpoint_every << '\n';
@@ -101,6 +102,7 @@ KmcCampaignManifest read_kmc_campaign_manifest(const std::string& path) {
         else if (key == "model_fingerprint") manifest.model_fingerprint = std::stoull(value);
         else if (key == "floating_rounding_mode") manifest.floating_rounding_mode = std::stoi(value);
         else if (key == "target_steps") manifest.target_steps = std::stoi(value);
+        else if (key == "lag_plan_steps") manifest.lag_plan_steps = std::stoi(value);
         else if (key == "requested_particles") manifest.requested_particles = std::stoi(value);
         else if (key == "target_runs") manifest.target_runs = std::stoi(value);
         else if (key == "checkpoint_every") manifest.checkpoint_every = std::stoi(value);
@@ -139,7 +141,8 @@ void validate_kmc_campaign_manifest(const KmcCampaignManifest& manifest,
                                     const std::string& expected_run_label_prefix,
                                     const std::string& expected_output_prefix,
                                     int expected_steps,
-                                    int expected_particles) {
+                                    int expected_particles,
+                                    int expected_lag_plan_steps) {
     if (manifest.build_fingerprint != current_build_fingerprint()) {
         throw std::runtime_error("Campaign manifest build fingerprint does not match the current binary");
     }
@@ -158,8 +161,16 @@ void validate_kmc_campaign_manifest(const KmcCampaignManifest& manifest,
     if (manifest.output_prefix != expected_output_prefix) {
         throw std::runtime_error("Campaign manifest output prefix mismatch");
     }
-    if (manifest.target_steps != expected_steps) {
-        throw std::runtime_error("Campaign manifest target_steps mismatch");
+    if (manifest.target_steps <= 0) {
+        throw std::runtime_error("Campaign manifest target_steps must be > 0");
+    }
+    const int resolved_lag_plan_steps = std::max(expected_steps,
+                                                 expected_lag_plan_steps > 0 ? expected_lag_plan_steps : expected_steps);
+    if (manifest.lag_plan_steps != resolved_lag_plan_steps) {
+        throw std::runtime_error("Campaign manifest lag_plan_steps mismatch");
+    }
+    if (manifest.lag_plan_steps < expected_steps) {
+        throw std::runtime_error("Campaign manifest lag_plan_steps is smaller than target_steps");
     }
     if (manifest.requested_particles != expected_particles) {
         throw std::runtime_error("Campaign manifest particle count mismatch");

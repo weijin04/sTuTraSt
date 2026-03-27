@@ -322,11 +322,12 @@ std::array<double, 2> KMC::linear_fit(const std::vector<double>& x, const std::v
     return {slope, intercept};
 }
 
-KmcRunState KMC::create_initial_run_state(int target_steps, int n_particles) const {
+KmcRunState KMC::create_initial_run_state(int target_steps, int n_particles, int lag_plan_steps) const {
     KmcRunState state;
     state.target_steps = static_cast<uint64_t>(target_steps);
+    state.lag_plan_steps = static_cast<uint64_t>(std::max(target_steps, lag_plan_steps > 0 ? lag_plan_steps : target_steps));
     state.requested_particles = n_particles;
-    state.msd_steps = generate_msd_steps(target_steps);
+    state.msd_steps = generate_msd_steps(static_cast<int>(state.lag_plan_steps));
     state.types.clear();
     std::vector<int> particle_slots;
     initialize_particles(n_particles, state.types, particle_slots);
@@ -360,10 +361,16 @@ KmcRunState KMC::create_initial_run_state(int target_steps, int n_particles) con
 
 void KMC::validate_run_state(const KmcRunState& state,
                              int expected_steps,
-                             int expected_requested_particles) const {
+                             int expected_requested_particles,
+                             int expected_lag_plan_steps) const {
     const int nbasis = static_cast<int>(basis_sites_.size());
     if (state.target_steps != static_cast<uint64_t>(expected_steps)) {
         throw std::runtime_error("Checkpoint target step count does not match current run");
+    }
+    const int resolved_lag_plan_steps = std::max(expected_steps,
+                                                 expected_lag_plan_steps > 0 ? expected_lag_plan_steps : expected_steps);
+    if (state.lag_plan_steps != static_cast<uint64_t>(resolved_lag_plan_steps)) {
+        throw std::runtime_error("Checkpoint lag planning horizon does not match current run");
     }
     if (state.requested_particles != expected_requested_particles) {
         throw std::runtime_error("Checkpoint particle count does not match current run");
@@ -374,7 +381,7 @@ void KMC::validate_run_state(const KmcRunState& state,
         throw std::runtime_error("Checkpoint basis-sized vectors do not match the current model");
     }
 
-    const std::vector<int> expected_msd_steps = generate_msd_steps(expected_steps);
+    const std::vector<int> expected_msd_steps = generate_msd_steps(resolved_lag_plan_steps);
     if (state.msd_steps != expected_msd_steps) {
         throw std::runtime_error("Checkpoint lag definition does not match the current run configuration");
     }
@@ -406,7 +413,8 @@ bool KMC::advance_run_state(KmcRunState& state,
                             const std::function<void(const KmcRunState&)>& on_checkpoint) {
     validate_run_state(state,
                        static_cast<int>(state.target_steps),
-                       state.requested_particles);
+                       state.requested_particles,
+                       static_cast<int>(state.lag_plan_steps));
 
     restore_rng_engine_state(rng_, state.rng_state);
 
@@ -565,7 +573,7 @@ std::vector<std::array<double, 4>> KMC::compute_msd_from_state(const KmcRunState
         throw std::runtime_error("Cannot compute final MSD from an incomplete KMC run state");
     }
 
-    std::vector<std::array<double, 4>> msd_out(state.msd_steps.size(), {0.0, 0.0, 0.0, 0.0});
+    std::vector<std::array<double, 4>> msd_out;
     if (state.effective_particles == 0 || state.target_steps == 0) {
         return msd_out;
     }
@@ -574,15 +582,15 @@ std::vector<std::array<double, 4>> KMC::compute_msd_from_state(const KmcRunState
         const int lag = state.msd_steps[lag_index];
         const int n_windows = static_cast<int>(state.target_steps) - lag;
         if (n_windows <= 0) {
-            continue;
+            break;
         }
 
         const double count = static_cast<double>(state.effective_particles) * static_cast<double>(n_windows);
         if (count > 0.0) {
-            msd_out[lag_index] = {state.sum_dt[lag_index] / static_cast<double>(n_windows),
-                                  state.accumulated_squared_diffs[lag_index].x / count,
-                                  state.accumulated_squared_diffs[lag_index].y / count,
-                                  state.accumulated_squared_diffs[lag_index].z / count};
+            msd_out.push_back({state.sum_dt[lag_index] / static_cast<double>(n_windows),
+                               state.accumulated_squared_diffs[lag_index].x / count,
+                               state.accumulated_squared_diffs[lag_index].y / count,
+                               state.accumulated_squared_diffs[lag_index].z / count});
         }
     }
 

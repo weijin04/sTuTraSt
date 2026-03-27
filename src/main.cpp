@@ -63,9 +63,10 @@ void validate_checkpoint_for_resume(const KmcCheckpointData& checkpoint,
                                     const KMC& kmc,
                                     const std::string& expected_run_label,
                                     int expected_steps,
-                                    int expected_particles) {
+                                    int expected_particles,
+                                    int expected_lag_plan_steps = -1) {
     validate_kmc_checkpoint_identity(checkpoint, kmc.model_fingerprint(), expected_run_label);
-    kmc.validate_run_state(checkpoint.state, expected_steps, expected_particles);
+    kmc.validate_run_state(checkpoint.state, expected_steps, expected_particles, expected_lag_plan_steps);
 }
 
 bool run_single_kmc_phase1(KMC& kmc,
@@ -124,6 +125,7 @@ KmcCampaignManifest make_initial_campaign_manifest(const KMC& kmc,
                                                   const std::string& run_label_prefix,
                                                   const std::string& output_prefix,
                                                   int n_steps,
+                                                  int lag_plan_steps,
                                                   int n_particles,
                                                   int target_runs,
                                                   int checkpoint_every) {
@@ -133,6 +135,7 @@ KmcCampaignManifest make_initial_campaign_manifest(const KMC& kmc,
     manifest.model_fingerprint = kmc.model_fingerprint();
     manifest.floating_rounding_mode = current_floating_rounding_mode();
     manifest.target_steps = n_steps;
+    manifest.lag_plan_steps = lag_plan_steps;
     manifest.requested_particles = n_particles;
     manifest.target_runs = target_runs;
     manifest.checkpoint_every = std::max(0, checkpoint_every);
@@ -155,12 +158,28 @@ bool run_campaign_kmc_phase2(KMC& kmc,
 
     if (std::filesystem::exists(manifest_path)) {
         manifest = read_kmc_campaign_manifest(manifest_path);
+        if (options.campaign_plan_steps_set && options.campaign_plan_steps != manifest.lag_plan_steps) {
+            throw std::runtime_error("Existing campaign already fixed its lag planning horizon; create a new campaign to change --campaign-plan-steps");
+        }
         validate_kmc_campaign_manifest(manifest,
                                        kmc.model_fingerprint(),
                                        run_label_prefix,
                                        output_prefix,
                                        n_steps,
-                                       n_particles);
+                                       n_particles,
+                                       manifest.lag_plan_steps);
+        if (n_steps > manifest.lag_plan_steps) {
+            throw std::runtime_error("Requested n_steps exceeds the campaign lag planning horizon; start the campaign with a larger --campaign-plan-steps value");
+        }
+        if (n_steps > manifest.target_steps) {
+            if (manifest.target_runs != 1 || manifest.completed_runs.size() > 1) {
+                throw std::runtime_error("Exact step-horizon extension is currently supported only for single-run campaigns; append-runs continuation remains available for multi-run campaigns");
+            }
+            manifest.active_run_index = 1;
+            manifest.active_checkpoint_path = campaign_checkpoint_path_for(options, run_label_prefix + "run1");
+            manifest.completed_runs.clear();
+        }
+        manifest.target_steps = n_steps;
         if (target_runs < static_cast<int>(manifest.completed_runs.size())) {
             throw std::runtime_error("Campaign target n_runs is smaller than already completed runs");
         }
@@ -175,6 +194,7 @@ bool run_campaign_kmc_phase2(KMC& kmc,
                                                  run_label_prefix,
                                                  output_prefix,
                                                  n_steps,
+                                                 options.campaign_plan_steps_set ? options.campaign_plan_steps : n_steps,
                                                  n_particles,
                                                  target_runs,
                                                  options.checkpoint_every);
@@ -189,15 +209,25 @@ bool run_campaign_kmc_phase2(KMC& kmc,
     while (next_run_index <= manifest.target_runs) {
         const std::string run_label = run_label_prefix + "run" + std::to_string(next_run_index);
         const std::string checkpoint_path = campaign_checkpoint_path_for(options, run_label);
-        KmcRunState state = kmc.create_initial_run_state(n_steps, n_particles);
+        KmcRunState state = kmc.create_initial_run_state(n_steps, n_particles, manifest.lag_plan_steps);
 
         if (manifest.active_run_index == next_run_index && !manifest.active_checkpoint_path.empty()) {
             const KmcCheckpointData checkpoint = read_kmc_checkpoint(manifest.active_checkpoint_path);
-            validate_checkpoint_for_resume(checkpoint, kmc, run_label, n_steps, n_particles);
+            validate_kmc_checkpoint_identity(checkpoint, kmc.model_fingerprint(), run_label);
+            kmc.validate_run_state(checkpoint.state,
+                                   static_cast<int>(checkpoint.state.target_steps),
+                                   n_particles,
+                                   manifest.lag_plan_steps);
             state = checkpoint.state;
+            if (state.target_steps < static_cast<uint64_t>(n_steps)) {
+                if (state.lag_plan_steps < static_cast<uint64_t>(n_steps)) {
+                    throw std::runtime_error("Checkpoint lag planning horizon is too small for the requested step extension");
+                }
+                state.target_steps = static_cast<uint64_t>(n_steps);
+            }
         } else {
             kmc.restore_rng_state(manifest.current_rng_state);
-            state = kmc.create_initial_run_state(n_steps, n_particles);
+            state = kmc.create_initial_run_state(n_steps, n_particles, manifest.lag_plan_steps);
         }
 
         const auto on_checkpoint = [&](const KmcRunState& current_state) {

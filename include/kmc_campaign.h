@@ -19,6 +19,7 @@ struct KmcCampaignManifest {
     int floating_rounding_mode = 0;
 
     int target_steps = 0;
+    int lag_plan_steps = 0;
     int requested_particles = 0;
     int target_runs = 0;
     int checkpoint_every = 0;
@@ -40,7 +41,8 @@ void validate_kmc_campaign_manifest(const KmcCampaignManifest& manifest,
                                     const std::string& expected_run_label_prefix,
                                     const std::string& expected_output_prefix,
                                     int expected_steps,
-                                    int expected_particles);
+                                    int expected_particles,
+                                    int expected_lag_plan_steps = -1);
 std::array<double, 6> aggregate_campaign_diffusion(const std::vector<KmcCampaignRunResult>& completed_runs);
 
 #endif // KMC_CAMPAIGN_H

@@ -1,3 +1,4 @@
+#include "cli_options.h"
 #include "input_parser.h"
 #include "cube_parser.h"
 #include "grid.h"
@@ -18,9 +19,111 @@
 #include <set>
 #include <map>
 #include <cstdlib>
+#include <filesystem>
 #include <iomanip>
+#include <stdexcept>
 
-int main(int /* argc */, char** /* argv */) {
+namespace {
+
+std::string checkpoint_path_for(const CliOptions& options, const std::string& run_label) {
+    const std::filesystem::path dir = options.checkpoint_dir.empty()
+        ? std::filesystem::path(".")
+        : std::filesystem::path(options.checkpoint_dir);
+    return std::filesystem::absolute(dir / (run_label + ".chk")).string();
+}
+
+void write_diffusion_file(const std::string& path, const std::array<double, 3>& diffusion) {
+    std::ofstream d_file(path);
+    d_file << std::scientific;
+    d_file << diffusion[0] << " " << 0.0 << " "
+           << diffusion[1] << " " << 0.0 << " "
+           << diffusion[2] << " " << 0.0 << '\n';
+}
+
+KmcCheckpointHeader make_checkpoint_header(const KMC& kmc,
+                                           const std::string& run_label,
+                                           int checkpoint_every) {
+    KmcCheckpointHeader header;
+    header.build_fingerprint = current_build_fingerprint();
+    header.rng_engine = current_rng_engine_name();
+    header.run_label = run_label;
+    header.model_fingerprint = kmc.model_fingerprint();
+    header.checkpoint_every = static_cast<uint64_t>(std::max(0, checkpoint_every));
+    header.floating_rounding_mode = current_floating_rounding_mode();
+    return header;
+}
+
+void validate_checkpoint_for_resume(const KmcCheckpointData& checkpoint,
+                                    const KMC& kmc,
+                                    const std::string& expected_run_label,
+                                    int expected_steps,
+                                    int expected_particles) {
+    validate_kmc_checkpoint_identity(checkpoint, kmc.model_fingerprint(), expected_run_label);
+    kmc.validate_run_state(checkpoint.state, expected_steps, expected_particles);
+}
+
+bool run_single_kmc_phase1(KMC& kmc,
+                           const CliOptions& options,
+                           int n_steps,
+                           int n_particles,
+                           const std::string& run_label,
+                           const std::string& output_prefix,
+                           std::array<double, 3>& diffusion_out) {
+    const std::string checkpoint_path = options.has_resume()
+        ? options.resume_path
+        : checkpoint_path_for(options, run_label);
+
+    KmcRunState state = kmc.create_initial_run_state(n_steps, n_particles);
+    int checkpoint_every = options.checkpoint_every;
+
+    if (options.has_resume()) {
+        const KmcCheckpointData checkpoint = read_kmc_checkpoint(options.resume_path);
+        validate_checkpoint_for_resume(checkpoint, kmc, run_label, n_steps, n_particles);
+        state = checkpoint.state;
+        if (!options.checkpoint_every_set) {
+            checkpoint_every = static_cast<int>(checkpoint.header.checkpoint_every);
+        }
+    }
+
+    const auto on_checkpoint = [&](const KmcRunState& current_state) {
+        write_kmc_checkpoint(checkpoint_path,
+                             KmcCheckpointData{make_checkpoint_header(kmc, run_label, checkpoint_every),
+                                               current_state});
+        std::cout << "Checkpoint saved: " << checkpoint_path
+                  << " (step " << current_state.current_step
+                  << "/" << current_state.target_steps << ")\n";
+    };
+
+    const bool completed = kmc.advance_run_state(state,
+                                                 checkpoint_every,
+                                                 options.max_kmc_steps,
+                                                 on_checkpoint);
+    if (!completed) {
+        std::cout << "kMC paused after " << state.current_step
+                  << " / " << state.target_steps
+                  << " steps. Resume with --resume " << checkpoint_path << '\n';
+        return false;
+    }
+
+    const std::vector<std::array<double, 4>> msd = kmc.compute_msd_from_state(state);
+    std::ofstream msd_file(output_prefix + "msd1.dat");
+    for (const auto& row : msd) {
+        msd_file << row[0] << " " << row[1] << " " << row[2] << " " << row[3] << '\n';
+    }
+    diffusion_out = kmc.compute_diffusion_from_msd(msd);
+    return true;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    try {
+    const CliOptions options = parse_cli_options(argc, argv);
+    if (options.show_help) {
+        std::cout << cli_help_text();
+        return 0;
+    }
+
     std::cout << "============================================" << '\n';
     std::cout << "TuTraSt - C++ Implementation" << '\n';
     std::cout << "Tunnel and Transition State Search Algorithm" << '\n';
@@ -31,10 +134,12 @@ int main(int /* argc */, char** /* argv */) {
     // Parse input parameters
     std::cout << "Reading input parameters..." << '\n';
     InputParams params = InputParser::parse("input.param");
+    validate_cli_options(options, params);
     
     std::cout << "Parameters:" << '\n';
     std::cout << "  Energy unit: " << params.energy_unit << '\n';
     std::cout << "  Temperatures: ";
+    bool kmc_paused = false;
     for (double T : params.temperatures) {
         std::cout << T << " ";
     }
@@ -390,19 +495,35 @@ int main(int /* argc */, char** /* argv */) {
             // Create KMC simulator with grid info and BT for proper fitting range
             KMC kmc(basis_sites, basis_tunnel_ids, processes, T, ngrid, grid_size,
                     params.per_tunnel, BT);
-            
-            // Run simulations
-            auto D_ave = kmc.run_multiple(params.n_runs, params.n_steps, 
-                                           params.n_particles, params.print_every, 
-                                           "T" + T_str + "_");
-            
-            // Write diffusion coefficient: D_x err_x D_y err_y D_z err_z (6 values like MATLAB)
-            std::ofstream D_file("D_ave_" + T_str + ".dat");
-            D_file << std::scientific;
-            D_file << D_ave[0] << " " << D_ave[1] << " " 
-                   << D_ave[2] << " " << D_ave[3] << " "
-                   << D_ave[4] << " " << D_ave[5] << '\n';
-            D_file.close();
+
+            if (options.has_kmc_control()) {
+                std::array<double, 3> diffusion = {0.0, 0.0, 0.0};
+                const bool completed = run_single_kmc_phase1(kmc,
+                                                             options,
+                                                             params.n_steps,
+                                                             params.n_particles,
+                                                             "T" + T_str + "_run1",
+                                                             "T" + T_str + "_",
+                                                             diffusion);
+                if (completed) {
+                    write_diffusion_file("D_ave_" + T_str + ".dat", diffusion);
+                } else {
+                    kmc_paused = true;
+                }
+            } else {
+                // Run simulations
+                auto D_ave = kmc.run_multiple(params.n_runs, params.n_steps,
+                                              params.n_particles, params.print_every,
+                                              "T" + T_str + "_");
+
+                // Write diffusion coefficient: D_x err_x D_y err_y D_z err_z (6 values like MATLAB)
+                std::ofstream D_file("D_ave_" + T_str + ".dat");
+                D_file << std::scientific;
+                D_file << D_ave[0] << " " << D_ave[1] << " "
+                       << D_ave[2] << " " << D_ave[3] << " "
+                       << D_ave[4] << " " << D_ave[5] << '\n';
+                D_file.close();
+            }
         }
     }
     
@@ -433,9 +554,14 @@ int main(int /* argc */, char** /* argv */) {
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time);
     
     std::cout << "\n============================================" << '\n';
-    std::cout << "Complete!" << '\n';
+    std::cout << (kmc_paused ? "Paused after checkpoint!" : "Complete!") << '\n';
     std::cout << "Total time: " << duration.count() << " seconds" << '\n';
     std::cout << "============================================" << '\n';
     
     return 0;
+    } catch (const std::exception& ex) {
+        std::cerr << "Error: " << ex.what() << '\n'
+                  << "Use --help for supported checkpoint/resume options." << std::endl;
+        return 1;
+    }
 }

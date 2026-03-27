@@ -542,12 +542,12 @@ bool KMC::advance_run_state(KmcRunState& state,
         state.event_history[write_slot] = logged_step;
 
         state.current_step++;
-        state.rng_state = serialize_rng_state(rng_);
 
         if (checkpoint_every > 0 &&
             state.current_step < state.target_steps &&
             (state.current_step % static_cast<uint64_t>(checkpoint_every)) == 0 &&
             on_checkpoint) {
+            state.rng_state = serialize_rng_state(rng_);
             on_checkpoint(state);
         }
     }

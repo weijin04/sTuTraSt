@@ -336,6 +336,8 @@ int main(int argc, char** argv) {
     std::cout << "\nInitializing grid..." << '\n';
     auto grid = std::make_shared<Grid>(ngrid);
     grid->initialize(pot_data, params.energy_step, params.energy_cutoff);
+    pot_data.clear();
+    pot_data.shrink_to_fit();
     
     // Initialize managers
     auto cluster_mgr = std::make_shared<ClusterManager>(grid);
@@ -545,12 +547,37 @@ int main(int argc, char** argv) {
         std::cout << "\nNo breakthrough directions found; skipping TS/tunnel/process generation." << '\n';
     }
     
+    auto output_writer = std::make_shared<OutputWriter>(cluster_mgr, tunnel_mgr, ts_mgr, params.energy_step);
+    bool structural_outputs_written = false;
+
+    const auto write_structural_outputs = [&](const std::vector<Process>& current_processes) {
+        std::cout << "\n============================================" << '\n';
+        std::cout << "Writing output files..." << '\n';
+        std::cout << "============================================\n" << '\n';
+
+        if (!current_processes.empty()) {
+            output_writer->write_basis("basis.dat", current_processes);
+            output_writer->write_ts_data("TS_data.out");
+        }
+        output_writer->write_tunnel_info("tunnel_info.out");
+
+        std::cout << "\nBreakthrough energies:" << '\n';
+        std::cout << "  A direction: " << BT[0] << " kJ/mol" << '\n';
+        std::cout << "  B direction: " << BT[1] << " kJ/mol" << '\n';
+        std::cout << "  C direction: " << BT[2] << " kJ/mol" << '\n';
+        output_writer->write_breakthrough("BT.dat", BT);
+
+        if (!params.temperatures.empty() && !current_processes.empty()) {
+            std::string evol_t = std::to_string(static_cast<int>(params.temperatures[0]));
+            output_writer->write_energy_volume("Evol_" + evol_t + ".dat", E_volume);
+        }
+        structural_outputs_written = true;
+    };
+
     // Calculate rates for each temperature
     std::cout << "\n============================================" << '\n';
     std::cout << "Calculating transition rates..." << '\n';
     std::cout << "============================================\n" << '\n';
-    
-    auto output_writer = std::make_shared<OutputWriter>(cluster_mgr, tunnel_mgr, ts_mgr, params.energy_step);
     
     // Calculate average voxel size (in Angstroms)
     // grid_size is the voxel spacing; ave_grid_size = mean(grid_size) matches MATLAB
@@ -670,6 +697,24 @@ int main(int argc, char** argv) {
             KMC kmc(basis_sites, basis_tunnel_ids, processes, T, ngrid, grid_size,
                     params.per_tunnel, BT);
 
+            if (!structural_outputs_written && params.temperatures.size() == 1) {
+                write_structural_outputs(processes);
+                output_writer.reset();
+                tunnel_mgr.reset();
+                ts_mgr.reset();
+                cluster_mgr.reset();
+                grid.reset();
+                ts_list_all.clear();
+                ts_list_all.shrink_to_fit();
+                tunnel_cluster.clear();
+                tunnel_cluster.shrink_to_fit();
+                tunnel_cluster_dim.clear();
+                tunnel_cluster_dim.shrink_to_fit();
+                tunnel_directions.clear();
+                tunnel_directions.shrink_to_fit();
+                E_volume.shrink_to_fit();
+            }
+
             if (options.has_campaign()) {
                 std::array<double, 6> diffusion = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
                 const bool completed = run_campaign_kmc_phase2(kmc,
@@ -716,26 +761,8 @@ int main(int argc, char** argv) {
     }
     
     // Write other output files
-    std::cout << "\n============================================" << '\n';
-    std::cout << "Writing output files..." << '\n';
-    std::cout << "============================================\n" << '\n';
-    
-    if (!processes.empty()) {
-        output_writer->write_basis("basis.dat", processes);
-        output_writer->write_ts_data("TS_data.out");
-    }
-    output_writer->write_tunnel_info("tunnel_info.out");
-    
-    // Write breakthrough energies
-    std::cout << "\nBreakthrough energies:" << '\n';
-    std::cout << "  A direction: " << BT[0] << " kJ/mol" << '\n';
-    std::cout << "  B direction: " << BT[1] << " kJ/mol" << '\n';
-    std::cout << "  C direction: " << BT[2] << " kJ/mol" << '\n';
-    output_writer->write_breakthrough("BT.dat", BT);
-    
-    if (!params.temperatures.empty() && !processes.empty()) {
-        std::string T_str = std::to_string(static_cast<int>(params.temperatures[0]));
-        output_writer->write_energy_volume("Evol_" + T_str + ".dat", E_volume);
+    if (!structural_outputs_written) {
+        write_structural_outputs(processes);
     }
     
     auto end_time = std::chrono::high_resolution_clock::now();

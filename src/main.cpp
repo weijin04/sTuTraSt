@@ -325,7 +325,7 @@ int main(int argc, char** argv) {
     std::cout << "\nReading grid.cube..." << '\n';
     std::array<int, 3> ngrid;
     std::array<double, 3> grid_size;
-    std::vector<std::vector<double>> pot_data;
+    std::vector<double> pot_data;
     
     if (!CubeParser::parse("grid.cube", params.energy_unit, ngrid, grid_size, pot_data)) {
         std::cerr << "Error: Failed to parse grid.cube" << std::endl;

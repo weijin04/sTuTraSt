@@ -30,7 +30,7 @@ double CubeParser::convert_energy(double energy, int from_unit) {
 bool CubeParser::parse(const std::string& filename, int energy_unit,
                       std::array<int, 3>& ngrid,
                       std::array<double, 3>& grid_size,
-                      std::vector<std::vector<double>>& pot_data) {
+                      std::vector<double>& pot_data) {
     std::ifstream file(filename);
     
     if (!file.is_open()) {
@@ -104,22 +104,15 @@ bool CubeParser::parse(const std::string& filename, int energy_unit,
     // Match MATLAB cube2xsfdat.m exactly:
     // 1) data_mat(a,b,c) filled with raw values in (a,b,c) loop order (c fastest)
     // 2) pot_data emitted in (c,b,a) order (a fastest)
-    std::vector<double> matlab_ordered;
-    matlab_ordered.reserve(total_points);
+    pot_data.clear();
+    pot_data.reserve(total_points);
     for (int z = 0; z < nz; z++) {
         for (int y = 0; y < ny; y++) {
             for (int x = 0; x < nx; x++) {
                 const int line = z + nz * (y + ny * x);
-                matlab_ordered.push_back(raw_values[line]);
+                pot_data.push_back(raw_values[line]);
             }
         }
-    }
-
-    // Reshape into rows of 6 for compatibility with Grid::initialize
-    const int n_rows = (total_points + 5) / 6;
-    pot_data.assign(n_rows, {});
-    for (int i = 0; i < total_points; i++) {
-        pot_data[i / 6].push_back(matlab_ordered[i]);
     }
     
     file.close();

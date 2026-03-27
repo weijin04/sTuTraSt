@@ -21,7 +21,7 @@ Grid::Grid(const std::array<int, 3>& dimensions)
     cross_k_matrix_.resize(total_size, 0);
 }
 
-void Grid::initialize(const std::vector<std::vector<double>>& pot_data,
+void Grid::initialize(const std::vector<double>& pot_data,
                      double energy_step, double energy_cutoff) {
     // MATLAB first does:
     //   pot_data(pot_data==max(pot_data)) = 10*cutoff;
@@ -30,10 +30,8 @@ void Grid::initialize(const std::vector<std::vector<double>>& pot_data,
     // This matters when pot_data contains Inf: max(pot_data) is Inf, so only Inf entries
     // are replaced, and finite maxima must be preserved.
     double raw_max = -std::numeric_limits<double>::infinity();
-    for (const auto& row : pot_data) {
-        for (double v : row) {
-            if (v > raw_max) raw_max = v;
-        }
+    for (double v : pot_data) {
+        if (v > raw_max) raw_max = v;
     }
 
     // Convert pot_data to E_matrix.
@@ -43,19 +41,12 @@ void Grid::initialize(const std::vector<std::vector<double>>& pot_data,
     for (int z = 0; z < dims_[2]; z++) {
         for (int y = 0; y < dims_[1]; y++) {
             for (int x = 0; x < dims_[0]; x++) {
-                int row_ind = ind / 6;
-                int col_ind = ind % 6;
-                
-                if (row_ind >= (int)pot_data.size()) {
-                    std::cerr << "Error: row_ind " << row_ind << " >= pot_data.size() " << pot_data.size() << std::endl;
+                if (ind >= static_cast<int>(pot_data.size())) {
+                    std::cerr << "Error: ind " << ind << " >= pot_data.size() " << pot_data.size() << std::endl;
                     return;
                 }
-                if (col_ind >= (int)pot_data[row_ind].size()) {
-                    std::cerr << "Error: col_ind " << col_ind << " >= pot_data[" << row_ind << "].size() " << pot_data[row_ind].size() << " (ind=" << ind << ")" << std::endl;
-                    return;
-                }
-                
-                double energy = pot_data[row_ind][col_ind];
+
+                double energy = pot_data[static_cast<size_t>(ind)];
 
                 // Match MATLAB preprocessing order on pot_data.
                 if (energy == raw_max || std::isinf(energy)) {

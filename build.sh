@@ -116,6 +116,7 @@ manual_build() {
         "$SCRIPT_DIR/src/pbc.cpp"
         "$SCRIPT_DIR/src/output_writer.cpp"
         "$SCRIPT_DIR/src/kmc.cpp"
+        "$SCRIPT_DIR/src/kmc_campaign.cpp"
         "$SCRIPT_DIR/src/kmc_state.cpp"
         "$SCRIPT_DIR/src/matrix_utils.cpp"
     )

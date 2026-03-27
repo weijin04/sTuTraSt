@@ -64,6 +64,7 @@ set(SOURCES
     src/pbc.cpp
     src/output_writer.cpp
     src/kmc.cpp
+    src/kmc_campaign.cpp
     src/kmc_state.cpp
     src/matrix_utils.cpp
 )
@@ -79,6 +80,7 @@ set(HEADERS
     include/pbc.h
     include/output_writer.h
     include/kmc.h
+    include/kmc_campaign.h
     include/kmc_state.h
     include/types.h
     include/matrix_utils.h
@@ -101,6 +103,7 @@ if(BUILD_TESTING)
     add_executable(kmc_checkpoint_tests
         tests/kmc_checkpoint_tests.cpp
         src/kmc.cpp
+        src/kmc_campaign.cpp
         src/kmc_state.cpp
     )
     target_include_directories(kmc_checkpoint_tests PRIVATE include)
@@ -114,6 +117,13 @@ if(BUILD_TESTING)
     add_test(
         NAME tutrast_cli_checkpoint_resume
         COMMAND /bin/bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_cli_checkpoint_resume_test.sh
+                $<TARGET_FILE:tutrast>
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/small_cli
+    )
+
+    add_test(
+        NAME tutrast_cli_campaign_append
+        COMMAND /bin/bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_cli_campaign_append_test.sh
                 $<TARGET_FILE:tutrast>
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/small_cli
     )

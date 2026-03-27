@@ -50,6 +50,10 @@ CliOptions parse_cli_options(int argc, char** argv) {
             options.checkpoint_dir = require_value(argc, argv, i, arg);
             continue;
         }
+        if (arg == "--campaign-dir") {
+            options.campaign_dir = require_value(argc, argv, i, arg);
+            continue;
+        }
         if (arg == "--max-kmc-steps") {
             options.max_kmc_steps = parse_positive_int(require_value(argc, argv, i, arg), arg);
             options.max_kmc_steps_set = true;
@@ -67,14 +71,20 @@ void validate_cli_options(const CliOptions& options, const InputParams& params) 
         return;
     }
 
+    if (options.has_resume() && options.has_campaign()) {
+        throw std::runtime_error("--resume and --campaign-dir are mutually exclusive");
+    }
     if (!params.run_kmc) {
         throw std::runtime_error("Checkpoint/resume options require run_kmc=1 in input.param");
     }
     if (params.n_temps != 1) {
         throw std::runtime_error("Phase 1 checkpoint/resume supports exactly one temperature");
     }
-    if (params.n_runs != 1) {
+    if (!options.has_campaign() && params.n_runs != 1) {
         throw std::runtime_error("Phase 1 checkpoint/resume supports exactly one kMC run");
+    }
+    if (options.has_campaign() && params.n_runs <= 0) {
+        throw std::runtime_error("Campaign continuation requires n_runs > 0");
     }
     if (params.n_steps <= 0) {
         throw std::runtime_error("Checkpoint/resume requires n_steps > 0");
@@ -87,6 +97,7 @@ std::string cli_help_text() {
         << "Options:\n"
         << "  --help, -h               Show this help text\n"
         << "  --resume <checkpoint>    Resume a single-run kMC checkpoint\n"
+        << "  --campaign-dir <dir>     Run or continue a manifest-backed multi-run campaign\n"
         << "  --checkpoint-every <N>   Write a full checkpoint every N kMC steps\n"
         << "  --checkpoint-dir <dir>   Directory for fresh-run checkpoint files (default: current dir)\n"
         << "  --max-kmc-steps <N>      Advance at most N kMC steps in this invocation\n";

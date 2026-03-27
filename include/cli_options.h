@@ -11,11 +11,13 @@ struct CliOptions {
     int checkpoint_every = 0;
     int max_kmc_steps = 0;
     std::string checkpoint_dir = ".";
+    std::string campaign_dir;
     std::string resume_path;
 
     bool has_resume() const { return !resume_path.empty(); }
+    bool has_campaign() const { return !campaign_dir.empty(); }
     bool has_kmc_control() const {
-        return has_resume() || checkpoint_every_set || max_kmc_steps_set;
+        return has_resume() || has_campaign() || checkpoint_every_set || max_kmc_steps_set;
     }
 };
 

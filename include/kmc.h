@@ -51,6 +51,8 @@ public:
     std::vector<std::array<double, 4>> compute_msd_from_state(const KmcRunState& state) const;
     std::array<double, 3> compute_diffusion_from_msd(const std::vector<std::array<double, 4>>& msd) const;
     uint64_t model_fingerprint() const { return model_fingerprint_; }
+    std::string current_rng_state() const;
+    void restore_rng_state(const std::string& state);
 
 private:
     std::vector<Coord3D> basis_sites_;

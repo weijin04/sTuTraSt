@@ -2,15 +2,15 @@
 
 ## KMC
 
-### Add Manifest-Backed Multi-Run Continuation
+### Add Manifest-Backed Step-Horizon Extension
 
-**What:** Add Phase 2 support for manifest-backed continuation across additional runs and longer run horizons.
+**What:** Extend the campaign system so an existing run can grow from a smaller target step horizon to a larger one without discarding prior validated progress.
 
-**Why:** Phase 1 exact resume solves interrupted single-run recovery, but the original user goal also requires continuing a study without discarding prior valid work when `n_steps` or `n_runs` were undersized.
+**Why:** Append-runs continuation is now implemented, but the original user goal also included recovering from undersized `n_steps` choices on a single long run.
 
-**Context:** Build this only after Phase 1 exact resume is stable. Reuse the Phase 1 checkpoint format, explicit CLI model, and `KmcRunState` foundation rather than inventing a second persistence path. This should cover appending more runs, extending horizons, and retaining the latest verified checkpoint until a campaign is finalized.
+**Context:** Reuse the new campaign manifest and per-run checkpoint flow instead of inventing a second continuation path. This remaining work is specifically about changing step horizon semantics while keeping lag identity, checkpoint validity, and final output rules explicit.
 
-**Effort:** L
+**Effort:** M
 **Priority:** P2
 **Depends on:** Phase 1 exact resume implementation and regression harness
 
@@ -43,3 +43,16 @@
 **Depends on:** Phase 1 harness and Phase 2 benchmark corpus
 
 ## Completed
+
+### Add Manifest-Backed Append-Runs Continuation
+
+**What:** Added manifest-backed continuation for appending additional completed runs to an existing campaign without discarding prior valid work.
+
+**Why:** This unlocks the first Phase 2 continuation workflow: finish `n_runs=2` today, then raise `n_runs` and continue from run 3 later while preserving exact seeded behavior.
+
+**Context:** Implemented on branch `feature/kmc-checkpoint-phase1` with campaign manifest read/write, per-run checkpoint ownership inside the campaign directory, RNG-state carry-forward across runs, and a black-box regression that proves campaign append matches single-invocation baseline output.
+
+**Effort:** L
+**Priority:** P2
+**Depends on:** Phase 1 exact resume implementation and regression harness
+**Completed:** 191fba8+ (2026-03-27)

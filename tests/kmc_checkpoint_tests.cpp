@@ -1,4 +1,5 @@
 #include "kmc.h"
+#include "kmc_campaign.h"
 #include "kmc_state.h"
 
 #include <cstdlib>
@@ -166,10 +167,45 @@ void test_checksum_and_identity_rejection() {
     require(identity_failed, "Build fingerprint mismatch should be rejected");
 }
 
+void test_campaign_manifest_roundtrip_and_aggregate() {
+    KmcCampaignManifest manifest;
+    manifest.build_fingerprint = current_build_fingerprint();
+    manifest.rng_engine = current_rng_engine_name();
+    manifest.model_fingerprint = 12345;
+    manifest.floating_rounding_mode = current_floating_rounding_mode();
+    manifest.target_steps = 100;
+    manifest.requested_particles = 1;
+    manifest.target_runs = 3;
+    manifest.checkpoint_every = 10;
+    manifest.run_label_prefix = "T300_";
+    manifest.output_prefix = "T300_";
+    manifest.current_rng_state = "rng state";
+    manifest.active_run_index = 2;
+    manifest.active_checkpoint_path = "/tmp/run2.chk";
+    manifest.completed_runs.push_back(KmcCampaignRunResult{1, {1.0, 2.0, 3.0}});
+    manifest.completed_runs.push_back(KmcCampaignRunResult{2, {3.0, 4.0, 5.0}});
+
+    const auto temp_dir = unique_temp_dir();
+    const auto manifest_path = temp_dir / "campaign.manifest";
+    write_kmc_campaign_manifest(manifest_path.string(), manifest);
+
+    const KmcCampaignManifest loaded = read_kmc_campaign_manifest(manifest_path.string());
+    require(loaded.target_runs == 3, "Campaign target_runs mismatch");
+    require(loaded.active_run_index == 2, "Campaign active_run_index mismatch");
+    require(loaded.completed_runs.size() == 2, "Campaign completed_runs size mismatch");
+    require(loaded.completed_runs[1].run_index == 2, "Campaign run order mismatch");
+
+    const auto aggregate = aggregate_campaign_diffusion(loaded.completed_runs);
+    require(aggregate[0] == 2.0, "Campaign mean diffusion x mismatch");
+    require(aggregate[2] == 3.0, "Campaign mean diffusion y mismatch");
+    require(aggregate[4] == 4.0, "Campaign mean diffusion z mismatch");
+}
+
 } // namespace
 
 int main() {
     test_checkpoint_roundtrip_and_resume();
     test_checksum_and_identity_rejection();
+    test_campaign_manifest_roundtrip_and_aggregate();
     return 0;
 }

@@ -123,7 +123,7 @@ std::string serialize_rng_state(const std::mt19937& rng) {
     return oss.str();
 }
 
-void restore_rng_state(std::mt19937& rng, const std::string& state) {
+void restore_rng_engine_state(std::mt19937& rng, const std::string& state) {
     std::istringstream iss(state);
     iss.imbue(std::locale::classic());
     iss >> rng;
@@ -408,7 +408,7 @@ bool KMC::advance_run_state(KmcRunState& state,
                        static_cast<int>(state.target_steps),
                        state.requested_particles);
 
-    restore_rng_state(rng_, state.rng_state);
+    restore_rng_engine_state(rng_, state.rng_state);
 
     const int nbasis = static_cast<int>(basis_sites_.size());
     FenwickTree active_rates(processes_.size());
@@ -638,6 +638,14 @@ std::array<double, 3> KMC::compute_diffusion_from_msd(const std::vector<std::arr
     }
 
     return diffusion_coefficients;
+}
+
+std::string KMC::current_rng_state() const {
+    return serialize_rng_state(rng_);
+}
+
+void KMC::restore_rng_state(const std::string& state) {
+    restore_rng_engine_state(rng_, state);
 }
 
 std::array<double, 6> KMC::run_multiple(int n_runs, int n_steps, int n_particles,

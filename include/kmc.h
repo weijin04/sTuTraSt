@@ -74,6 +74,9 @@ private:
     void initialize_particles(int n_particles,
                               std::vector<unsigned char>& types,
                               std::vector<int>& particle_slots) const;
+    void run_and_compute_msd(int n_steps, int n_particles,
+                             const std::vector<int>& msd_steps,
+                             std::vector<std::array<double, 4>>& msd_out);
     uint64_t compute_model_fingerprint() const;
     static size_t flat_index(int outer, int inner, int inner_size);
 

@@ -359,6 +359,173 @@ KmcRunState KMC::create_initial_run_state(int target_steps, int n_particles, int
     return state;
 }
 
+void KMC::run_and_compute_msd(int n_steps, int n_particles,
+                              const std::vector<int>& msd_steps,
+                              std::vector<std::array<double, 4>>& msd_out) {
+    // Dedicated fast path for plain runs without checkpoint/campaign overhead.
+    const int nbasis = static_cast<int>(basis_sites_.size());
+    std::vector<unsigned char> types;
+    std::vector<int> particle_slots;
+    initialize_particles(n_particles, types, particle_slots);
+
+    const int effective_particles = static_cast<int>(particle_slots.size());
+    msd_out.assign(msd_steps.size(), {0.0, 0.0, 0.0, 0.0});
+    if (effective_particles == 0 || n_steps <= 0) {
+        return;
+    }
+
+    std::vector<int> slot_to_particle_id(nbasis, -1);
+    for (int particle = 0; particle < effective_particles; particle++) {
+        slot_to_particle_id[particle_slots[particle]] = particle;
+    }
+
+    std::vector<int> site_to_slot(nbasis);
+    for (int i = 0; i < nbasis; i++) {
+        site_to_slot[i] = i;
+    }
+
+    FenwickTree active_rates(processes_.size());
+    for (int site = 0; site < nbasis; site++) {
+        if (types[site] == 0) continue;
+        for (int offset = outgoing_process_offsets_[site]; offset < outgoing_process_offsets_[site + 1]; offset++) {
+            const int process_index = outgoing_process_indices_[offset];
+            active_rates.add(static_cast<size_t>(process_index), processes_[process_index].rate);
+        }
+    }
+
+    std::uniform_real_distribution<double> uniform01(0.0, 1.0);
+    double current_time = 0.0;
+    const int max_lag = msd_steps.empty() ? 0 : msd_steps.back();
+    const int history_size = std::max(1, max_lag + 1);
+    std::vector<double> time_history(history_size, 0.0);
+    std::vector<LoggedStep> event_history(history_size);
+    std::vector<double> sum_dt(msd_steps.size(), 0.0);
+    std::vector<AxisSums> current_squared_diffs(msd_steps.size());
+    std::vector<AxisSums> accumulated_squared_diffs(msd_steps.size());
+    std::vector<Position3D> lag_diffs(static_cast<size_t>(msd_steps.size()) *
+                                      static_cast<size_t>(effective_particles),
+                                      Position3D());
+    size_t available_lags = 0;
+
+    for (int step = 0; step < n_steps; step++) {
+        LoggedStep logged_step;
+        const double rate_length = active_rates.total();
+        if (rate_length > 0.0) {
+            double pick_process = uniform01(rng_) * rate_length;
+            if (pick_process <= 0.0) {
+                pick_process = std::numeric_limits<double>::min();
+            }
+            const int selected = active_rates.lower_bound(pick_process);
+            if (selected >= 0) {
+                const Process& proc = processes_[selected];
+                const int from0 = proc.from_basis;
+                const int to0 = proc.to_basis;
+                const int coord_li = site_to_slot[from0];
+                const int coord_empty = site_to_slot[to0];
+                logged_step.process_index = selected;
+                logged_step.particle_ids[0] = slot_to_particle_id[coord_li];
+                logged_step.particle_signs[0] = 1;
+                if (coord_li != coord_empty) {
+                    logged_step.particle_ids[1] = slot_to_particle_id[coord_empty];
+                    logged_step.particle_signs[1] = -1;
+                }
+                const bool self_process = (from0 == to0);
+                const bool to_was_occupied = (!self_process && types[to0] == 1);
+
+                if (!self_process) {
+                    types[from0] = 0;
+                    types[to0] = 1;
+                    for (int offset = outgoing_process_offsets_[from0];
+                         offset < outgoing_process_offsets_[from0 + 1];
+                         offset++) {
+                        const int process_index = outgoing_process_indices_[offset];
+                        active_rates.add(static_cast<size_t>(process_index), -processes_[process_index].rate);
+                    }
+                    if (!to_was_occupied) {
+                        for (int offset = outgoing_process_offsets_[to0];
+                             offset < outgoing_process_offsets_[to0 + 1];
+                             offset++) {
+                            const int process_index = outgoing_process_indices_[offset];
+                            active_rates.add(static_cast<size_t>(process_index), processes_[process_index].rate);
+                        }
+                    }
+
+                    site_to_slot[from0] = coord_empty;
+                    site_to_slot[to0] = coord_li;
+                }
+
+                double r = uniform01(rng_);
+                if (r <= 0.0) r = 1e-12;
+                current_time += std::log(1.0 / r) / rate_length;
+            }
+        }
+
+        if (logged_step.process_index >= 0) {
+            const auto& displacement = process_displacements_[logged_step.process_index];
+            for (int update_idx = 0; update_idx < 2; update_idx++) {
+                const int particle_id = logged_step.particle_ids[update_idx];
+                const int particle_sign = logged_step.particle_signs[update_idx];
+                if (particle_id < 0 || particle_sign == 0) continue;
+                for (size_t lag_index = 0; lag_index < msd_steps.size(); lag_index++) {
+                    Position3D& diff = lag_diffs[flat_index(static_cast<int>(lag_index),
+                                                            particle_id,
+                                                            effective_particles)];
+                    apply_position_delta(displacement, diff, current_squared_diffs[lag_index], static_cast<double>(particle_sign));
+                }
+            }
+        }
+
+        while (available_lags < msd_steps.size() && msd_steps[available_lags] <= step) {
+            available_lags++;
+        }
+        for (size_t lag_index = 0; lag_index < available_lags; lag_index++) {
+            const int lag = msd_steps[lag_index];
+            const int history_slot = (step - lag) % history_size;
+            const LoggedStep& old_step = event_history[history_slot];
+            if (old_step.process_index >= 0) {
+                const auto& displacement = process_displacements_[old_step.process_index];
+                for (int update_idx = 0; update_idx < 2; update_idx++) {
+                    const int particle_id = old_step.particle_ids[update_idx];
+                    const int particle_sign = old_step.particle_signs[update_idx];
+                    if (particle_id < 0 || particle_sign == 0) continue;
+                    Position3D& diff = lag_diffs[flat_index(static_cast<int>(lag_index),
+                                                            particle_id,
+                                                            effective_particles)];
+                    apply_position_delta(displacement,
+                                         diff,
+                                         current_squared_diffs[lag_index],
+                                         -static_cast<double>(particle_sign));
+                }
+            }
+
+            sum_dt[lag_index] += current_time - time_history[history_slot];
+            accumulated_squared_diffs[lag_index].x += current_squared_diffs[lag_index].x;
+            accumulated_squared_diffs[lag_index].y += current_squared_diffs[lag_index].y;
+            accumulated_squared_diffs[lag_index].z += current_squared_diffs[lag_index].z;
+        }
+
+        const int write_slot = step % history_size;
+        time_history[write_slot] = current_time;
+        event_history[write_slot] = logged_step;
+    }
+
+    for (size_t lag_index = 0; lag_index < msd_steps.size(); lag_index++) {
+        const int lag = msd_steps[lag_index];
+        const int n_windows = n_steps - lag;
+        if (n_windows <= 0) {
+            continue;
+        }
+
+        const double count = static_cast<double>(effective_particles) * static_cast<double>(n_windows);
+        if (count > 0.0) {
+            msd_out[lag_index] = {sum_dt[lag_index] / static_cast<double>(n_windows),
+                                  accumulated_squared_diffs[lag_index].x / count,
+                                  accumulated_squared_diffs[lag_index].y / count,
+                                  accumulated_squared_diffs[lag_index].z / count};
+        }
+    }
+}
+
 void KMC::validate_run_state(const KmcRunState& state,
                              int expected_steps,
                              int expected_requested_particles,
@@ -659,15 +826,11 @@ void KMC::restore_rng_state(const std::string& state) {
 std::array<double, 6> KMC::run_multiple(int n_runs, int n_steps, int n_particles,
                                         int /* print_every */, const std::string& output_prefix) {
     std::vector<std::array<double, 3>> diffusion_coefficients(n_runs);
+    const std::vector<int> msd_steps = generate_msd_steps(n_steps);
 
     for (int run = 0; run < n_runs; run++) {
-        KmcRunState state = create_initial_run_state(n_steps, n_particles);
-        const bool completed = advance_run_state(state, 0, 0, {});
-        if (!completed) {
-            throw std::runtime_error("Fresh KMC run unexpectedly failed to complete");
-        }
-
-        const std::vector<std::array<double, 4>> msd = compute_msd_from_state(state);
+        std::vector<std::array<double, 4>> msd;
+        run_and_compute_msd(n_steps, n_particles, msd_steps, msd);
         write_msd_file(output_prefix + "msd" + std::to_string(run + 1) + ".dat", msd);
         diffusion_coefficients[run] = compute_diffusion_from_msd(msd);
     }

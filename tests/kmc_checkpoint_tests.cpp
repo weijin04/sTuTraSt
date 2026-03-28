@@ -89,7 +89,7 @@ void test_checkpoint_roundtrip_and_resume() {
     };
 
     const auto checkpoint_writer = [&](const KmcRunState& state) {
-        write_kmc_checkpoint(checkpoint_path.string(), KmcCheckpointData{header, state});
+        write_kmc_checkpoint(checkpoint_path.string(), header, state);
     };
 
     require(!checkpointed.advance_run_state(partial_state, 10, 20, checkpoint_writer),
@@ -182,8 +182,8 @@ void test_campaign_manifest_roundtrip_and_aggregate() {
     manifest.current_rng_state = "rng state";
     manifest.active_run_index = 2;
     manifest.active_checkpoint_path = "/tmp/run2.chk";
-    manifest.completed_runs.push_back(KmcCampaignRunResult{1, {1.0, 2.0, 3.0}});
-    manifest.completed_runs.push_back(KmcCampaignRunResult{2, {3.0, 4.0, 5.0}});
+    manifest.completed_runs.push_back(KmcCampaignRunResult{1, {1.0, 2.0, 3.0}, 100, "/tmp/run1.chk"});
+    manifest.completed_runs.push_back(KmcCampaignRunResult{2, {3.0, 4.0, 5.0}, 80, "/tmp/run2.chk"});
 
     const auto temp_dir = unique_temp_dir();
     const auto manifest_path = temp_dir / "campaign.manifest";
@@ -194,6 +194,8 @@ void test_campaign_manifest_roundtrip_and_aggregate() {
     require(loaded.active_run_index == 2, "Campaign active_run_index mismatch");
     require(loaded.completed_runs.size() == 2, "Campaign completed_runs size mismatch");
     require(loaded.completed_runs[1].run_index == 2, "Campaign run order mismatch");
+    require(loaded.completed_runs[0].completed_steps == 100, "Campaign completed_steps roundtrip mismatch");
+    require(loaded.completed_runs[1].checkpoint_path == "/tmp/run2.chk", "Campaign checkpoint_path roundtrip mismatch");
 
     const auto aggregate = aggregate_campaign_diffusion(loaded.completed_runs);
     require(aggregate[0] == 2.0, "Campaign mean diffusion x mismatch");

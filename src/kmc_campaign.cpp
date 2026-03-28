@@ -71,7 +71,12 @@ void write_kmc_campaign_manifest(const std::string& path, const KmcCampaignManif
         out << "run_result=" << run.run_index << " "
             << run.diffusion[0] << " "
             << run.diffusion[1] << " "
-            << run.diffusion[2] << '\n';
+            << run.diffusion[2] << " "
+            << run.completed_steps;
+        if (!run.checkpoint_path.empty()) {
+            out << " " << std::quoted(run.checkpoint_path);
+        }
+        out << '\n';
     }
 
     atomic_write_text_file(path, out.str());
@@ -121,6 +126,11 @@ KmcCampaignManifest read_kmc_campaign_manifest(const std::string& path) {
             if (!iss) {
                 throw std::runtime_error("Malformed run_result line in campaign manifest");
             }
+            if (iss >> run.completed_steps) {
+                if (!(iss >> std::quoted(run.checkpoint_path)) && !iss.eof()) {
+                    throw std::runtime_error("Malformed checkpoint path in campaign manifest");
+                }
+            }
             manifest.completed_runs.push_back(run);
         } else {
             throw std::runtime_error("Unknown manifest key: " + key);
@@ -136,6 +146,11 @@ KmcCampaignManifest read_kmc_campaign_manifest(const std::string& path) {
               [](const KmcCampaignRunResult& lhs, const KmcCampaignRunResult& rhs) {
                   return lhs.run_index < rhs.run_index;
               });
+    for (auto& run : manifest.completed_runs) {
+        if (run.completed_steps <= 0) {
+            run.completed_steps = manifest.target_steps;
+        }
+    }
     return manifest;
 }
 
@@ -177,6 +192,14 @@ void validate_kmc_campaign_manifest(const KmcCampaignManifest& manifest,
     }
     if (manifest.requested_particles != expected_particles) {
         throw std::runtime_error("Campaign manifest particle count mismatch");
+    }
+    for (const auto& run : manifest.completed_runs) {
+        if (run.run_index <= 0 || run.run_index > manifest.target_runs) {
+            throw std::runtime_error("Campaign manifest run index is out of range");
+        }
+        if (run.completed_steps <= 0 || run.completed_steps > manifest.target_steps) {
+            throw std::runtime_error("Campaign manifest completed_steps is inconsistent with target_steps");
+        }
     }
 }
 

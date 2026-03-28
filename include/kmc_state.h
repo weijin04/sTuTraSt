@@ -67,6 +67,9 @@ std::string current_rng_engine_name();
 int current_floating_rounding_mode();
 
 void write_kmc_checkpoint(const std::string& path, const KmcCheckpointData& checkpoint);
+void write_kmc_checkpoint(const std::string& path,
+                          const KmcCheckpointHeader& header,
+                          const KmcRunState& state);
 KmcCheckpointData read_kmc_checkpoint(const std::string& path);
 void validate_kmc_checkpoint_identity(const KmcCheckpointData& checkpoint,
                                       uint64_t expected_model_fingerprint,

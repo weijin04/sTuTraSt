@@ -9,6 +9,8 @@
 struct KmcCampaignRunResult {
     int run_index = 0;
     std::array<double, 3> diffusion = {0.0, 0.0, 0.0};
+    int completed_steps = 0;
+    std::string checkpoint_path;
 };
 
 struct KmcCampaignManifest {

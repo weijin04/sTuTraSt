@@ -64,6 +64,17 @@ select_compiler() {
     return 1
 }
 
+collect_supported_flags() {
+    local -n requested_ref="$1"
+    local -n supported_ref="$2"
+    supported_ref=()
+    for flag in "${requested_ref[@]}"; do
+        if compiler_supports_flag "$flag"; then
+            supported_ref+=("$flag")
+        fi
+    done
+}
+
 compiler_supports_flag() {
     local flag="$1"
     local tmpdir src bin
@@ -96,6 +107,7 @@ manual_build() {
     tutrast_sources=(
         "$SCRIPT_DIR/src/main.cpp"
         "$SCRIPT_DIR/src/cube_parser.cpp"
+        "$SCRIPT_DIR/src/cli_options.cpp"
         "$SCRIPT_DIR/src/input_parser.cpp"
         "$SCRIPT_DIR/src/grid.cpp"
         "$SCRIPT_DIR/src/cluster.cpp"
@@ -104,6 +116,8 @@ manual_build() {
         "$SCRIPT_DIR/src/pbc.cpp"
         "$SCRIPT_DIR/src/output_writer.cpp"
         "$SCRIPT_DIR/src/kmc.cpp"
+        "$SCRIPT_DIR/src/kmc_campaign.cpp"
+        "$SCRIPT_DIR/src/kmc_state.cpp"
         "$SCRIPT_DIR/src/matrix_utils.cpp"
     )
 
@@ -121,6 +135,17 @@ manual_build() {
         arch_flags=(-march=znver4 -mtune=znver4)
     fi
 
+    local -a supported_arch_flags
+    collect_supported_flags arch_flags supported_arch_flags
+    if [ ${#supported_arch_flags[@]} -eq 0 ] && [ -z "${TUTRAST_ARCH_FLAGS:-}" ]; then
+        local -a fallback_arch_flags=(-march=native -mtune=native)
+        collect_supported_flags fallback_arch_flags supported_arch_flags
+    fi
+    if [ ${#supported_arch_flags[@]} -eq 0 ]; then
+        print_warning "No requested architecture tuning flags are supported, building without explicit arch tuning."
+    fi
+    arch_flags=("${supported_arch_flags[@]}")
+
     if compiler_supports_flag -flto; then
         lto_flags=(-flto)
     else
@@ -136,7 +161,11 @@ manual_build() {
     fi
 
     print_info "Compiler: $CXX_BIN"
-    print_info "Architecture flags: ${arch_flags[*]}"
+    if [ ${#arch_flags[@]} -gt 0 ]; then
+        print_info "Architecture flags: ${arch_flags[*]}"
+    else
+        print_info "Architecture flags: (none)"
+    fi
     [ ${#lto_flags[@]} -gt 0 ] && print_info "LTO enabled"
     [ ${#omp_flags[@]} -gt 0 ] && print_info "OpenMP enabled for mkgrid"
 

@@ -1,3 +1,5 @@
+#include "cli_options.h"
+#include "kmc_campaign.h"
 #include "input_parser.h"
 #include "cube_parser.h"
 #include "grid.h"
@@ -18,9 +20,363 @@
 #include <set>
 #include <map>
 #include <cstdlib>
+#include <filesystem>
 #include <iomanip>
+#include <stdexcept>
 
-int main(int /* argc */, char** /* argv */) {
+namespace {
+
+std::string checkpoint_path_for(const CliOptions& options, const std::string& run_label) {
+    const std::filesystem::path dir = options.checkpoint_dir.empty()
+        ? std::filesystem::path(".")
+        : std::filesystem::path(options.checkpoint_dir);
+    return std::filesystem::absolute(dir / (run_label + ".chk")).string();
+}
+
+std::string campaign_checkpoint_path_for(const CliOptions& options, const std::string& run_label) {
+    const std::filesystem::path campaign_root = std::filesystem::absolute(std::filesystem::path(options.campaign_dir));
+    return (campaign_root / "checkpoints" / (run_label + ".chk")).string();
+}
+
+void write_diffusion_file(const std::string& path, const std::array<double, 6>& diffusion) {
+    std::ofstream d_file(path);
+    d_file << std::scientific;
+    d_file << diffusion[0] << " " << diffusion[1] << " "
+           << diffusion[2] << " " << diffusion[3] << " "
+           << diffusion[4] << " " << diffusion[5] << '\n';
+}
+
+KmcCheckpointHeader make_checkpoint_header(const KMC& kmc,
+                                           const std::string& run_label,
+                                           int checkpoint_every) {
+    KmcCheckpointHeader header;
+    header.build_fingerprint = current_build_fingerprint();
+    header.rng_engine = current_rng_engine_name();
+    header.run_label = run_label;
+    header.model_fingerprint = kmc.model_fingerprint();
+    header.checkpoint_every = static_cast<uint64_t>(std::max(0, checkpoint_every));
+    header.floating_rounding_mode = current_floating_rounding_mode();
+    return header;
+}
+
+void validate_checkpoint_for_resume(const KmcCheckpointData& checkpoint,
+                                    const KMC& kmc,
+                                    const std::string& expected_run_label,
+                                    int expected_steps,
+                                    int expected_particles,
+                                    int expected_lag_plan_steps = -1) {
+    validate_kmc_checkpoint_identity(checkpoint, kmc.model_fingerprint(), expected_run_label);
+    kmc.validate_run_state(checkpoint.state, expected_steps, expected_particles, expected_lag_plan_steps);
+}
+
+KmcCampaignRunResult* find_campaign_run_result(std::vector<KmcCampaignRunResult>& runs, int run_index) {
+    for (auto& run : runs) {
+        if (run.run_index == run_index) {
+            return &run;
+        }
+    }
+    return nullptr;
+}
+
+const KmcCampaignRunResult* find_campaign_run_result(const std::vector<KmcCampaignRunResult>& runs, int run_index) {
+    for (const auto& run : runs) {
+        if (run.run_index == run_index) {
+            return &run;
+        }
+    }
+    return nullptr;
+}
+
+int next_campaign_run_to_process(const KmcCampaignManifest& manifest) {
+    if (manifest.active_run_index > 0) {
+        return manifest.active_run_index;
+    }
+    for (int run_index = 1; run_index <= manifest.target_runs; run_index++) {
+        const KmcCampaignRunResult* run = find_campaign_run_result(manifest.completed_runs, run_index);
+        if (!run || run->completed_steps < manifest.target_steps) {
+            return run_index;
+        }
+    }
+    return 0;
+}
+
+std::vector<KmcCampaignRunResult> completed_runs_at_target(const KmcCampaignManifest& manifest) {
+    std::vector<KmcCampaignRunResult> runs;
+    runs.reserve(manifest.completed_runs.size());
+    for (const auto& run : manifest.completed_runs) {
+        if (run.completed_steps == manifest.target_steps) {
+            runs.push_back(run);
+        }
+    }
+    return runs;
+}
+
+bool run_single_kmc_phase1(KMC& kmc,
+                           const CliOptions& options,
+                           int n_steps,
+                           int n_particles,
+                           const std::string& run_label,
+                           const std::string& output_prefix,
+                           std::array<double, 3>& diffusion_out) {
+    const std::string checkpoint_path = options.has_resume()
+        ? options.resume_path
+        : checkpoint_path_for(options, run_label);
+
+    KmcRunState state;
+    int checkpoint_every = options.checkpoint_every;
+
+    if (options.has_resume()) {
+        KmcCheckpointData checkpoint = read_kmc_checkpoint(options.resume_path);
+        validate_checkpoint_for_resume(checkpoint, kmc, run_label, n_steps, n_particles);
+        if (!options.checkpoint_every_set) {
+            checkpoint_every = static_cast<int>(checkpoint.header.checkpoint_every);
+        }
+        state = std::move(checkpoint.state);
+    } else {
+        state = kmc.create_initial_run_state(n_steps, n_particles);
+    }
+
+    const KmcCheckpointHeader checkpoint_header = make_checkpoint_header(kmc, run_label, checkpoint_every);
+    const auto on_checkpoint = [&](const KmcRunState& current_state) {
+        write_kmc_checkpoint(checkpoint_path, checkpoint_header, current_state);
+        std::cout << "Checkpoint saved: " << checkpoint_path
+                  << " (step " << current_state.current_step
+                  << "/" << current_state.target_steps << ")\n";
+    };
+
+    const bool completed = kmc.advance_run_state(state,
+                                                 checkpoint_every,
+                                                 options.max_kmc_steps,
+                                                 on_checkpoint);
+    if (!completed) {
+        std::cout << "kMC paused after " << state.current_step
+                  << " / " << state.target_steps
+                  << " steps. Resume with --resume " << checkpoint_path << '\n';
+        return false;
+    }
+
+    const std::vector<std::array<double, 4>> msd = kmc.compute_msd_from_state(state);
+    std::ofstream msd_file(output_prefix + "msd1.dat");
+    for (const auto& row : msd) {
+        msd_file << row[0] << " " << row[1] << " " << row[2] << " " << row[3] << '\n';
+    }
+    diffusion_out = kmc.compute_diffusion_from_msd(msd);
+    return true;
+}
+
+KmcCampaignManifest make_initial_campaign_manifest(const KMC& kmc,
+                                                  const std::string& run_label_prefix,
+                                                  const std::string& output_prefix,
+                                                  int n_steps,
+                                                  int lag_plan_steps,
+                                                  int n_particles,
+                                                  int target_runs,
+                                                  int checkpoint_every) {
+    KmcCampaignManifest manifest;
+    manifest.build_fingerprint = current_build_fingerprint();
+    manifest.rng_engine = current_rng_engine_name();
+    manifest.model_fingerprint = kmc.model_fingerprint();
+    manifest.floating_rounding_mode = current_floating_rounding_mode();
+    manifest.target_steps = n_steps;
+    manifest.lag_plan_steps = lag_plan_steps;
+    manifest.requested_particles = n_particles;
+    manifest.target_runs = target_runs;
+    manifest.checkpoint_every = std::max(0, checkpoint_every);
+    manifest.run_label_prefix = run_label_prefix;
+    manifest.output_prefix = output_prefix;
+    manifest.current_rng_state = kmc.current_rng_state();
+    return manifest;
+}
+
+bool run_campaign_kmc_phase2(KMC& kmc,
+                             const CliOptions& options,
+                             int n_steps,
+                             int n_particles,
+                             int target_runs,
+                             const std::string& run_label_prefix,
+                             const std::string& output_prefix,
+                             std::array<double, 6>& diffusion_out) {
+    const std::string manifest_path = campaign_manifest_path(options.campaign_dir);
+    KmcCampaignManifest manifest;
+
+    if (std::filesystem::exists(manifest_path)) {
+        manifest = read_kmc_campaign_manifest(manifest_path);
+        if (options.campaign_plan_steps_set && options.campaign_plan_steps != manifest.lag_plan_steps) {
+            throw std::runtime_error("Existing campaign already fixed its lag planning horizon; create a new campaign to change --campaign-plan-steps");
+        }
+        validate_kmc_campaign_manifest(manifest,
+                                       kmc.model_fingerprint(),
+                                       run_label_prefix,
+                                       output_prefix,
+                                       n_steps,
+                                       n_particles,
+                                       manifest.lag_plan_steps);
+        if (n_steps > manifest.lag_plan_steps) {
+            throw std::runtime_error("Requested n_steps exceeds the campaign lag planning horizon; start the campaign with a larger --campaign-plan-steps value");
+        }
+        if (n_steps < manifest.target_steps) {
+            throw std::runtime_error("Shrinking target n_steps for an existing campaign is not supported");
+        }
+        if (n_steps > manifest.target_steps) {
+            for (const auto& run : manifest.completed_runs) {
+                if (run.completed_steps >= n_steps) {
+                    continue;
+                }
+                const std::string run_label = run_label_prefix + "run" + std::to_string(run.run_index);
+                const std::string checkpoint_path = run.checkpoint_path.empty()
+                    ? campaign_checkpoint_path_for(options, run_label)
+                    : run.checkpoint_path;
+                if (!std::filesystem::exists(checkpoint_path)) {
+                    throw std::runtime_error("Extending target n_steps requires a saved checkpoint for completed run " +
+                                             std::to_string(run.run_index) +
+                                             "; start the campaign with --campaign-plan-steps and keep per-run checkpoints");
+                }
+            }
+        }
+        manifest.target_steps = n_steps;
+        if (target_runs < static_cast<int>(manifest.completed_runs.size())) {
+            throw std::runtime_error("Campaign target n_runs is smaller than already completed runs");
+        }
+        if (target_runs > manifest.target_runs) {
+            manifest.target_runs = target_runs;
+        }
+        if (options.checkpoint_every_set) {
+            manifest.checkpoint_every = options.checkpoint_every;
+        }
+    } else {
+        manifest = make_initial_campaign_manifest(kmc,
+                                                 run_label_prefix,
+                                                 output_prefix,
+                                                 n_steps,
+                                                 options.campaign_plan_steps_set ? options.campaign_plan_steps : n_steps,
+                                                 n_particles,
+                                                 target_runs,
+                                                 options.checkpoint_every);
+        write_kmc_campaign_manifest(manifest_path, manifest);
+    }
+
+    while (true) {
+        const int next_run_index = next_campaign_run_to_process(manifest);
+        if (next_run_index <= 0) {
+            break;
+        }
+        const std::string run_label = run_label_prefix + "run" + std::to_string(next_run_index);
+        const std::string default_checkpoint_path = campaign_checkpoint_path_for(options, run_label);
+        KmcCampaignRunResult* existing_run = find_campaign_run_result(manifest.completed_runs, next_run_index);
+        std::string checkpoint_path = default_checkpoint_path;
+        KmcRunState state;
+
+        if (manifest.active_run_index == next_run_index && !manifest.active_checkpoint_path.empty()) {
+            checkpoint_path = manifest.active_checkpoint_path;
+            KmcCheckpointData checkpoint = read_kmc_checkpoint(checkpoint_path);
+            validate_kmc_checkpoint_identity(checkpoint, kmc.model_fingerprint(), run_label);
+            kmc.validate_run_state(checkpoint.state,
+                                   static_cast<int>(checkpoint.state.target_steps),
+                                   n_particles,
+                                   manifest.lag_plan_steps);
+            state = std::move(checkpoint.state);
+            if (state.target_steps < static_cast<uint64_t>(n_steps)) {
+                if (state.lag_plan_steps < static_cast<uint64_t>(n_steps)) {
+                    throw std::runtime_error("Checkpoint lag planning horizon is too small for the requested step extension");
+                }
+                state.target_steps = static_cast<uint64_t>(n_steps);
+            }
+        } else if (existing_run && existing_run->completed_steps < n_steps) {
+            checkpoint_path = existing_run->checkpoint_path.empty()
+                ? default_checkpoint_path
+                : existing_run->checkpoint_path;
+            KmcCheckpointData checkpoint = read_kmc_checkpoint(checkpoint_path);
+            validate_kmc_checkpoint_identity(checkpoint, kmc.model_fingerprint(), run_label);
+            kmc.validate_run_state(checkpoint.state,
+                                   static_cast<int>(checkpoint.state.target_steps),
+                                   n_particles,
+                                   manifest.lag_plan_steps);
+            state = std::move(checkpoint.state);
+            if (state.target_steps < static_cast<uint64_t>(n_steps)) {
+                if (state.lag_plan_steps < static_cast<uint64_t>(n_steps)) {
+                    throw std::runtime_error("Checkpoint lag planning horizon is too small for the requested step extension");
+                }
+                state.target_steps = static_cast<uint64_t>(n_steps);
+            }
+        } else {
+            kmc.restore_rng_state(manifest.current_rng_state);
+            state = kmc.create_initial_run_state(n_steps, n_particles, manifest.lag_plan_steps);
+        }
+
+        const KmcCheckpointHeader checkpoint_header =
+            make_checkpoint_header(kmc, run_label, manifest.checkpoint_every);
+        const auto on_checkpoint = [&](const KmcRunState& current_state) {
+            write_kmc_checkpoint(checkpoint_path, checkpoint_header, current_state);
+            const bool manifest_changed =
+                manifest.active_run_index != next_run_index ||
+                manifest.active_checkpoint_path != checkpoint_path;
+            manifest.active_run_index = next_run_index;
+            manifest.active_checkpoint_path = checkpoint_path;
+            if (manifest_changed) {
+                write_kmc_campaign_manifest(manifest_path, manifest);
+            }
+            std::cout << "Campaign checkpoint saved: " << checkpoint_path
+                      << " (run " << next_run_index
+                      << ", step " << current_state.current_step
+                      << "/" << current_state.target_steps << ")\n";
+        };
+
+        const bool completed = kmc.advance_run_state(state,
+                                                     manifest.checkpoint_every,
+                                                     options.max_kmc_steps,
+                                                     on_checkpoint);
+        if (!completed) {
+            diffusion_out = aggregate_campaign_diffusion(completed_runs_at_target(manifest));
+            std::cout << "Campaign paused during run " << next_run_index
+                      << ". Re-run with --campaign-dir " << std::filesystem::absolute(options.campaign_dir).string()
+                      << " to continue." << '\n';
+            return false;
+        }
+
+        const std::vector<std::array<double, 4>> msd = kmc.compute_msd_from_state(state);
+        std::ofstream msd_file(output_prefix + "msd" + std::to_string(next_run_index) + ".dat");
+        for (const auto& row : msd) {
+            msd_file << row[0] << " " << row[1] << " " << row[2] << " " << row[3] << '\n';
+        }
+
+        const std::array<double, 3> diffusion = kmc.compute_diffusion_from_msd(msd);
+        if (!existing_run) {
+            manifest.completed_runs.push_back(KmcCampaignRunResult{next_run_index, diffusion, 0, ""});
+            existing_run = &manifest.completed_runs.back();
+        }
+        existing_run->run_index = next_run_index;
+        existing_run->diffusion = diffusion;
+        existing_run->completed_steps = static_cast<int>(state.target_steps);
+        manifest.current_rng_state = state.rng_state;
+        manifest.active_run_index = 0;
+        manifest.active_checkpoint_path.clear();
+        if (manifest.lag_plan_steps > static_cast<int>(state.target_steps)) {
+            write_kmc_checkpoint(checkpoint_path, checkpoint_header, state);
+            existing_run->checkpoint_path = checkpoint_path;
+        } else {
+            existing_run->checkpoint_path.clear();
+        }
+        write_kmc_campaign_manifest(manifest_path, manifest);
+
+        const std::array<double, 6> aggregate = aggregate_campaign_diffusion(completed_runs_at_target(manifest));
+        write_diffusion_file("D_ave_" + run_label_prefix.substr(1, run_label_prefix.size() - 2) + ".dat",
+                             aggregate);
+    }
+
+    diffusion_out = aggregate_campaign_diffusion(completed_runs_at_target(manifest));
+    return true;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    try {
+    const CliOptions options = parse_cli_options(argc, argv);
+    if (options.show_help) {
+        std::cout << cli_help_text();
+        return 0;
+    }
+
     std::cout << "============================================" << '\n';
     std::cout << "TuTraSt - C++ Implementation" << '\n';
     std::cout << "Tunnel and Transition State Search Algorithm" << '\n';
@@ -31,10 +387,12 @@ int main(int /* argc */, char** /* argv */) {
     // Parse input parameters
     std::cout << "Reading input parameters..." << '\n';
     InputParams params = InputParser::parse("input.param");
+    validate_cli_options(options, params);
     
     std::cout << "Parameters:" << '\n';
     std::cout << "  Energy unit: " << params.energy_unit << '\n';
     std::cout << "  Temperatures: ";
+    bool kmc_paused = false;
     for (double T : params.temperatures) {
         std::cout << T << " ";
     }
@@ -46,7 +404,7 @@ int main(int /* argc */, char** /* argv */) {
     std::cout << "\nReading grid.cube..." << '\n';
     std::array<int, 3> ngrid;
     std::array<double, 3> grid_size;
-    std::vector<std::vector<double>> pot_data;
+    std::vector<double> pot_data;
     
     if (!CubeParser::parse("grid.cube", params.energy_unit, ngrid, grid_size, pot_data)) {
         std::cerr << "Error: Failed to parse grid.cube" << std::endl;
@@ -57,6 +415,8 @@ int main(int /* argc */, char** /* argv */) {
     std::cout << "\nInitializing grid..." << '\n';
     auto grid = std::make_shared<Grid>(ngrid);
     grid->initialize(pot_data, params.energy_step, params.energy_cutoff);
+    pot_data.clear();
+    pot_data.shrink_to_fit();
     
     // Initialize managers
     auto cluster_mgr = std::make_shared<ClusterManager>(grid);
@@ -266,12 +626,37 @@ int main(int /* argc */, char** /* argv */) {
         std::cout << "\nNo breakthrough directions found; skipping TS/tunnel/process generation." << '\n';
     }
     
+    auto output_writer = std::make_shared<OutputWriter>(cluster_mgr, tunnel_mgr, ts_mgr, params.energy_step);
+    bool structural_outputs_written = false;
+
+    const auto write_structural_outputs = [&](const std::vector<Process>& current_processes) {
+        std::cout << "\n============================================" << '\n';
+        std::cout << "Writing output files..." << '\n';
+        std::cout << "============================================\n" << '\n';
+
+        if (!current_processes.empty()) {
+            output_writer->write_basis("basis.dat", current_processes);
+            output_writer->write_ts_data("TS_data.out");
+        }
+        output_writer->write_tunnel_info("tunnel_info.out");
+
+        std::cout << "\nBreakthrough energies:" << '\n';
+        std::cout << "  A direction: " << BT[0] << " kJ/mol" << '\n';
+        std::cout << "  B direction: " << BT[1] << " kJ/mol" << '\n';
+        std::cout << "  C direction: " << BT[2] << " kJ/mol" << '\n';
+        output_writer->write_breakthrough("BT.dat", BT);
+
+        if (!params.temperatures.empty() && !current_processes.empty()) {
+            std::string evol_t = std::to_string(static_cast<int>(params.temperatures[0]));
+            output_writer->write_energy_volume("Evol_" + evol_t + ".dat", E_volume);
+        }
+        structural_outputs_written = true;
+    };
+
     // Calculate rates for each temperature
     std::cout << "\n============================================" << '\n';
     std::cout << "Calculating transition rates..." << '\n';
     std::cout << "============================================\n" << '\n';
-    
-    auto output_writer = std::make_shared<OutputWriter>(cluster_mgr, tunnel_mgr, ts_mgr, params.energy_step);
     
     // Calculate average voxel size (in Angstroms)
     // grid_size is the voxel spacing; ave_grid_size = mean(grid_size) matches MATLAB
@@ -390,52 +775,87 @@ int main(int /* argc */, char** /* argv */) {
             // Create KMC simulator with grid info and BT for proper fitting range
             KMC kmc(basis_sites, basis_tunnel_ids, processes, T, ngrid, grid_size,
                     params.per_tunnel, BT);
-            
-            // Run simulations
-            auto D_ave = kmc.run_multiple(params.n_runs, params.n_steps, 
-                                           params.n_particles, params.print_every, 
-                                           "T" + T_str + "_");
-            
-            // Write diffusion coefficient: D_x err_x D_y err_y D_z err_z (6 values like MATLAB)
-            std::ofstream D_file("D_ave_" + T_str + ".dat");
-            D_file << std::scientific;
-            D_file << D_ave[0] << " " << D_ave[1] << " " 
-                   << D_ave[2] << " " << D_ave[3] << " "
-                   << D_ave[4] << " " << D_ave[5] << '\n';
-            D_file.close();
+
+            if (!structural_outputs_written && params.temperatures.size() == 1) {
+                write_structural_outputs(processes);
+                output_writer.reset();
+                tunnel_mgr.reset();
+                ts_mgr.reset();
+                cluster_mgr.reset();
+                grid.reset();
+                ts_list_all.clear();
+                ts_list_all.shrink_to_fit();
+                tunnel_cluster.clear();
+                tunnel_cluster.shrink_to_fit();
+                tunnel_cluster_dim.clear();
+                tunnel_cluster_dim.shrink_to_fit();
+                tunnel_directions.clear();
+                tunnel_directions.shrink_to_fit();
+                E_volume.shrink_to_fit();
+            }
+
+            if (options.has_campaign()) {
+                std::array<double, 6> diffusion = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+                const bool completed = run_campaign_kmc_phase2(kmc,
+                                                               options,
+                                                               params.n_steps,
+                                                               params.n_particles,
+                                                               params.n_runs,
+                                                               "T" + T_str + "_",
+                                                               "T" + T_str + "_",
+                                                               diffusion);
+                if (!completed) {
+                    kmc_paused = true;
+                }
+            } else if (options.has_kmc_control()) {
+                std::array<double, 3> diffusion = {0.0, 0.0, 0.0};
+                const bool completed = run_single_kmc_phase1(kmc,
+                                                             options,
+                                                             params.n_steps,
+                                                             params.n_particles,
+                                                             "T" + T_str + "_run1",
+                                                             "T" + T_str + "_",
+                                                             diffusion);
+                if (completed) {
+                    write_diffusion_file("D_ave_" + T_str + ".dat",
+                                         {diffusion[0], 0.0, diffusion[1], 0.0, diffusion[2], 0.0});
+                } else {
+                    kmc_paused = true;
+                }
+            } else {
+                // Run simulations
+                auto D_ave = kmc.run_multiple(params.n_runs, params.n_steps,
+                                              params.n_particles, params.print_every,
+                                              "T" + T_str + "_");
+
+                // Write diffusion coefficient: D_x err_x D_y err_y D_z err_z (6 values like MATLAB)
+                std::ofstream D_file("D_ave_" + T_str + ".dat");
+                D_file << std::scientific;
+                D_file << D_ave[0] << " " << D_ave[1] << " "
+                       << D_ave[2] << " " << D_ave[3] << " "
+                       << D_ave[4] << " " << D_ave[5] << '\n';
+                D_file.close();
+            }
         }
     }
     
     // Write other output files
-    std::cout << "\n============================================" << '\n';
-    std::cout << "Writing output files..." << '\n';
-    std::cout << "============================================\n" << '\n';
-    
-    if (!processes.empty()) {
-        output_writer->write_basis("basis.dat", processes);
-        output_writer->write_ts_data("TS_data.out");
-    }
-    output_writer->write_tunnel_info("tunnel_info.out");
-    
-    // Write breakthrough energies
-    std::cout << "\nBreakthrough energies:" << '\n';
-    std::cout << "  A direction: " << BT[0] << " kJ/mol" << '\n';
-    std::cout << "  B direction: " << BT[1] << " kJ/mol" << '\n';
-    std::cout << "  C direction: " << BT[2] << " kJ/mol" << '\n';
-    output_writer->write_breakthrough("BT.dat", BT);
-    
-    if (!params.temperatures.empty() && !processes.empty()) {
-        std::string T_str = std::to_string(static_cast<int>(params.temperatures[0]));
-        output_writer->write_energy_volume("Evol_" + T_str + ".dat", E_volume);
+    if (!structural_outputs_written) {
+        write_structural_outputs(processes);
     }
     
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time);
     
     std::cout << "\n============================================" << '\n';
-    std::cout << "Complete!" << '\n';
+    std::cout << (kmc_paused ? "Paused after checkpoint!" : "Complete!") << '\n';
     std::cout << "Total time: " << duration.count() << " seconds" << '\n';
     std::cout << "============================================" << '\n';
     
     return 0;
+    } catch (const std::exception& ex) {
+        std::cerr << "Error: " << ex.what() << '\n'
+                  << "Use --help for supported checkpoint/resume options." << std::endl;
+        return 1;
+    }
 }

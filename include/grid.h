@@ -12,7 +12,7 @@ public:
     Grid(const std::array<int, 3>& dimensions);
     
     // Initialize from potential data
-    void initialize(const std::vector<std::vector<double>>& pot_data,
+    void initialize(const std::vector<double>& pot_data,
                    double energy_step, double energy_cutoff);
     
     // Getters

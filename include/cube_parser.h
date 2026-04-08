@@ -12,7 +12,7 @@ public:
     static bool parse(const std::string& filename, int energy_unit,
                      std::array<int, 3>& ngrid,
                      std::array<double, 3>& grid_size,
-                     std::vector<std::vector<double>>& pot_data);
+                     std::vector<double>& pot_data);
     
 private:
     // Convert energy units
